@@ -4,9 +4,9 @@ using System.Collections.ObjectModel;
 namespace Nyapl.Parsing.Tree;
 
 public class ReturnStatementNode : StatementNode {
-	public ExpressionNode? Expression { get; }
+	public ExpressionNode Expression { get; }
 
-	public ReturnStatementNode(SourceLoc location, ExpressionNode? expression) {
+	public ReturnStatementNode(SourceLoc location, ExpressionNode expression) {
 		Location = location;
 		Expression = expression;
 	}
@@ -14,8 +14,7 @@ public class ReturnStatementNode : StatementNode {
 	public override ReadOnlyCollection<AstNode> GetChildren() {
 		List<AstNode> children = new();
 
-		if (Expression != null)
-			children.Add(Expression);
+		children.Add(Expression);
 
 		return children.AsReadOnly();
 	}

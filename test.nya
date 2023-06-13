@@ -6,5 +6,9 @@ fn main(): i32 {
 		return 0 + 0;
 	}
 
+	fn past_the_point(): i32 {
+		// of no return
+	}
+
 	return return_val + returns();
 }

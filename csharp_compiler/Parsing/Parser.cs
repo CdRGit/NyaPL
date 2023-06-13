@@ -77,10 +77,8 @@ public class Parser {
 
 	private StatementNode ParseStatement(TokenList.Context tokens) {
 		if (tokens.Match(KeywordKind.Return)) {
-			SourceLoc location = tokens.Take(KeywordKind.Return).Location;
-			ExpressionNode? expression = null;
-			if (!tokens.Match(TokenKind.SemiColon))
-				expression = ParseExpression(tokens);
+			var location = tokens.Take(KeywordKind.Return).Location;
+			var expression = ParseExpression(tokens);
 			tokens.Take(TokenKind.SemiColon);
 			return new ReturnStatementNode(location, expression);
 		} else if (tokens.Match(KeywordKind.Let)) {
