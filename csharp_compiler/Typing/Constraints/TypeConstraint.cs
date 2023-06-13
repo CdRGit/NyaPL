@@ -20,6 +20,7 @@ public abstract class TypeConstraint {
 			case Meta m:
 				metasUsed.Add(m.ID);
 				break;
+			case Intrinsic:
 			case Trivial:
 			case Function:
 				break;

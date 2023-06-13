@@ -1,3 +1,10 @@
 fn main(): i32 {
-	return 5 + 6 * 7 / 3 - 8 % 4;
+	let tuple = (5, main, 6);
+
+	return tuple_adder(tuple);
+}
+
+fn tuple_adder(tuple: (i32, fn(): i32, i32)): i32 {
+	let (x, _, y) = tuple;
+	return x + y;
 }

@@ -12,10 +12,24 @@ using Nyapl.Typing.Constraints;
 namespace Nyapl.Typing;
 
 public class TypeChecker {
-	private static readonly Typ i32 = new Trivial("i32");
+	private static readonly Typ i32 = new Intrinsic(IntrinsicType.I32);
+	private static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
 
 	private SideEffectNode Check(Context ctx, SideEffectNode effect) {
 		return new(effect.Location, effect.Name, new NamedEffect(effect.Name));
+	}
+
+	private DestructureItemNode Check(Context ctx, DestructureItemNode item) {
+		switch (item) {
+			case NamedDestructureNode named: {
+				var type = Check(ctx, named.TypeNode);
+				return new NamedDestructureNode(named.Location, named.Name, type, type.Type!);
+			}
+			case HoleDestructureNode hole: {
+				return new HoleDestructureNode(hole.Location, ctx.NewMeta());
+			}
+		}
+		throw new Exception($"Unimplemented: Check({item.GetType().Name})");
 	}
 
 	private ParameterNode Check(Context ctx, ParameterNode parameter, bool allowHole = true) {
@@ -47,6 +61,11 @@ public class TypeChecker {
 
 	private ExpressionNode Check(Context ctx, ExpressionNode expression) {
 		switch (expression) {
+			case TupleNode tupleNode: {
+				var values = new AstListNode<ExpressionNode>(tupleNode.Location, tupleNode.Values.Select(v => Check(ctx, v)).ToList().AsReadOnly());
+				var type = new Apply(tuple, values.Select(v => v.Type!).ToList().AsReadOnly());
+				return new TupleNode(tupleNode.Location, values, type);
+			}
 			case HoleExpressionNode hole: {
 				return new HoleExpressionNode(hole.Location, ctx.NewMeta());
 			}
@@ -107,6 +126,25 @@ public class TypeChecker {
 				if(!ctx.DeclareVar(dec.Name, declaredType.Type!)) throw new TypeError(dec.Location, $"Variable {dec.Name} already declared");
 				return new DeclareVarNode(dec.Location, dec.Name, declaredType, expressionType);
 			}
+			case DestructureNode destruct: {
+				var names = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Names.Select(n => Check(ctx, n)).ToList().AsReadOnly());
+				var expression = Check(ctx, destruct.Expression);
+				var expected = new Apply(tuple, names.Select(n => n.Type!).ToList().AsReadOnly());
+				ctx.Unify(destruct.Location, expected, expression.Type!);
+				// declare the named parts later:tm:
+				// it is now later
+				foreach (var name in names) {
+					switch (name) {
+						case NamedDestructureNode n: {
+								if(!ctx.DeclareVar(n.Name, n.Type!)) throw new TypeError(n.Location, $"Variable {n.Name} already declared");
+							} break;
+						case HoleDestructureNode:
+							break;
+						default: throw new Exception($"Unknown DestructureItemNode: {name.GetType().Name}");
+					}
+				}
+				return new DestructureNode(destruct.Location, names, expression);
+			}
 			case FunctionNode func: {
 				return Check(ctx, func);
 			}
@@ -133,6 +171,7 @@ public class TypeChecker {
 			case Function f:
 				return new Function(Zonk(ctx, f.Effects));
 			case Trivial:
+			case Intrinsic:
 				return type;
 			case Meta m: {
 				Typ t = ctx.Force(m);
@@ -163,7 +202,7 @@ public class TypeChecker {
 		if (type is Function f) {
 			return false;
 		}
-		if (type is Trivial tr) {
+		if (type is Trivial || type is Intrinsic) {
 			return false;
 		}
 
@@ -433,8 +472,10 @@ public class TypeChecker {
 
 		public bool Occurs(int id, Typ t) {
 			switch (t) {
-				case Function: return false;
-				case Trivial: return false;
+				case Function:
+				case Trivial:
+				case Intrinsic:
+					return false;
 				case Meta m: return m.ID == id;
 				case Apply a: return Occurs(id, a.BaseType) || a.ParameterTypes.Any(x => Occurs(id, x));
 				default: throw new Exception($"Occurs not implemented for {t.GetType().Name}");
@@ -462,6 +503,9 @@ public class TypeChecker {
 
 			if (l is Trivial lT && r is Trivial rT) {
 				if (lT.Name != rT.Name) throw new TypeError(loc, $"{lT.Name} and {rT.Name} are not compatible types");
+				return;
+			} else if (l is Intrinsic lI && r is Intrinsic rI) {
+				if (lI.Type != rI.Type) throw new TypeError(loc, $"{lI.Type} and {rI.Type} are not compatible types");
 				return;
 			} else if (l is Function lF && r is Function rF) {
 				// check the effects

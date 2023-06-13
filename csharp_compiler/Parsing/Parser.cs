@@ -38,6 +38,10 @@ public class Parser {
 		return new(location, name, sideEffects, parameters, returnType, body);
 	}
 
+	private TypeNode ParseOptionalTypeTag(TokenList.Context tokens) {
+		return tokens.Match(TokenKind.Colon) ? ParseTypeTag(tokens) : new TypeHoleNode(tokens.Current.Location);
+	}
+
 	private ExpressionNode ParseAtom(TokenList.Context tokens) {
 		// all I know is number & VarLookup
 		if (tokens.Match(TokenKind.Integer)) {
@@ -49,6 +53,13 @@ public class Parser {
 		} else if (tokens.Match(KeywordKind.Hole)) {
 			Token token = tokens.Take(KeywordKind.Hole);
 			return new HoleExpressionNode(token.Location);
+		} else if (tokens.Match(TokenKind.LParen)) {
+			var loc = tokens.Current.Location;
+			var list = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseExpression);
+			if (list.Children.Count == 1) {
+				return list.Children[0];
+			}
+			return new TupleNode(loc, list);
 		}
 		throw new Exception($"ParseAtom(): atom starting with ${tokens.Current} not implemented yet");
 	}
@@ -90,6 +101,19 @@ public class Parser {
 		// additive
 	}
 
+	private DestructureItemNode ParseDestructureItem(TokenList.Context tokens) {
+		if (tokens.Match(TokenKind.Identifier)) {
+			var tok = tokens.Take(TokenKind.Identifier);
+			var type = ParseOptionalTypeTag(tokens);
+			return new NamedDestructureNode(tok.Location, tok.StrVal, type);
+		}
+		else if (tokens.Match(KeywordKind.Hole)) {
+			var tok = tokens.Take(KeywordKind.Hole);
+			return new HoleDestructureNode(tok.Location);
+		}
+		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");
+	}
+
 	private StatementNode ParseStatement(TokenList.Context tokens) {
 		if (tokens.Match(KeywordKind.Return)) {
 			var location = tokens.Take(KeywordKind.Return).Location;
@@ -97,9 +121,19 @@ public class Parser {
 			tokens.Take(TokenKind.SemiColon);
 			return new ReturnStatementNode(location, expression);
 		} else if (tokens.Match(KeywordKind.Let)) {
+			// either we're doing a vardeclare or a destructure
 			SourceLoc location = tokens.Take(KeywordKind.Let).Location;
+			if (tokens.Match(TokenKind.LParen)) {
+				// DESTRUCTURE
+				var names = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseDestructureItem);
+				if (names.Children.Count == 1) throw new ParseError(location, "You cannot destructure 1-tuples as they do not exist");
+				tokens.Take(TokenKind.Assign);
+				var val = ParseExpression(tokens);
+				tokens.Take(TokenKind.SemiColon);
+				return new DestructureNode(location, names, val);
+			}
 			string name = tokens.Take(TokenKind.Identifier).StrVal;
-			TypeNode type = tokens.Match(TokenKind.Colon) ? ParseTypeTag(tokens) : new TypeHoleNode(tokens.Current.Location);
+			TypeNode type = ParseOptionalTypeTag(tokens);
 			tokens.Take(TokenKind.Assign);
 			ExpressionNode expression = ParseExpression(tokens);
 			tokens.Take(TokenKind.SemiColon);

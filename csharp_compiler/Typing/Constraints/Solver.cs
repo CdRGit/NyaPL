@@ -123,7 +123,9 @@ public class Solver {
 				else if (newR is Meta mR) {
 					ctx.Solve(eq.Location, mR.ID, newL);
 				} else {
-					if (!typeComparer.Equals(newL, newR)) throw new TypeError(eq.Location, $"{newL} != {newR}");
+					if (typeComparer.Equals(newL, newR)) return;
+					ctx.Unify(eq.Location, newL, newR);
+					revisitT.Add(new TypeConstraint.Equal(eq.Location, newL, newR, ctx));
 				}
 				return; // success
 			}
@@ -164,6 +166,9 @@ public class Solver {
 		if (type is Trivial tr) {
 			return false;
 		}
+		if (type is Intrinsic i) {
+			return false;
+		}
 
 		throw new Exception($"HasMeta({type.GetType().Name}) not implemented yet");
 	}
@@ -182,6 +187,9 @@ public class Solver {
 		}
 		if (type is Trivial tr) {
 			return tr;
+		}
+		if (type is Intrinsic i) {
+			return i;
 		}
 
 		throw new Exception($"Resolve({type.GetType().Name}) not implemented yet");
@@ -221,6 +229,9 @@ public class Solver {
 			}
 			if (t1 is Trivial n1 && t2 is Trivial n2) {
 				return n1.Name == n2.Name;
+			}
+			if (t1 is Intrinsic i1 && t2 is Intrinsic i2) {
+				return i1.Type == i2.Type;
 			}
 			if (t1 is Meta m1 && t2 is Meta m2) {
 				return m1.ID == m2.ID;
