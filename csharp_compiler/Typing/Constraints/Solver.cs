@@ -131,14 +131,17 @@ public class Solver {
 				// check if all three types derive properly
 				var newLeft   = Resolve(ctx, bin.Left);
 				var newRight  = Resolve(ctx, bin.Right);
-				var newResult = Resolve(ctx, bin.Result);
 				// add new to revisit list to try again later
-				if (HasMeta(ctx, newLeft) || HasMeta(ctx, newRight) || HasMeta(ctx, newResult))
-					revisitT.Add(new TypeConstraint.BinOp(bin.Location, newLeft, newRight, newResult, bin.OP, ctx));
+				if (HasMeta(ctx, newLeft) || HasMeta(ctx, newRight))
+					revisitT.Add(new TypeConstraint.BinOp(bin.Location, newLeft, newRight, bin.Result, bin.OP, ctx));
 				else {
 					if (!ctx.GetBinOperators().Where((v) => {
-						return v.Item1 == bin.OP && typeComparer.Equals(v.Item2, newLeft) && typeComparer.Equals(v.Item3, newRight) && typeComparer.Equals(v.Item4, newResult);
-					}).Any()) throw new TypeError(bin.Location, $"No operator `{bin.OP}` exists where `{newLeft}` {bin.OP} `{newRight}` = `{newResult}`");
+						if (v.Item1 == bin.OP && typeComparer.Equals(v.Item2, newLeft) && typeComparer.Equals(v.Item3, newRight)) {
+							ctx.Unify(bin.Location, v.Item4, bin.Result);
+							return true;
+						}
+						return false;
+					}).Any()) throw new TypeError(bin.Location, $"No operator `{bin.OP}` exists where `{newLeft}` {bin.OP} `{newRight}` = `{bin.Result}`");
 					// make sure the constraint is possible
 				}
 				return;
