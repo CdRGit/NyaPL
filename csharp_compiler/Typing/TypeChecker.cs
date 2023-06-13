@@ -55,6 +55,11 @@ public class TypeChecker {
 				var t = new Apply(new Function(effects.Select(e => e.Effect!).ToList().AsReadOnly()), allTypes);
 				return new FunctionTypeNode(function.Location, effects, parameters, returnType, t);
 			}
+			case TupleTypeNode tupleType: {
+				var types = new AstListNode<TypeNode>(tupleType.Types.Location, tupleType.Types.Select(t => Check(ctx, t, allowHole)).ToList().AsReadOnly());
+				var t = new Apply(tuple, types.Select(t => t.Type!).ToList().AsReadOnly());
+				return new TupleTypeNode(tupleType.Location, types, t);
+			}
 		}
 		throw new Exception($"Unimplemented: Check({type.GetType().Name})");
 	}

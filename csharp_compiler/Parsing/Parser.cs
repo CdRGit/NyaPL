@@ -158,9 +158,16 @@ public class Parser {
 		return new(function.Location, effects, parameters, returnType);
 	}
 
+	private TupleTypeNode ParseTupleType(TokenList.Context tokens) {
+		var location = tokens.Current.Location;
+		var types = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseType);
+		return new(location, types);
+	}
+
 	private TypeNode ParseType(TokenList.Context tokens) {
 		if (tokens.Match(KeywordKind.Hole)) return new TypeHoleNode(tokens.Take(KeywordKind.Hole).Location);
 		else if (tokens.Match(KeywordKind.Function)) return ParseFunctionType(tokens);
+		else if (tokens.Match(TokenKind.LParen)) return ParseTupleType(tokens);
 
 		Token tok = tokens.Take(TokenKind.Identifier);
 		return new NamedTypeNode(tok.Location, tok.StrVal);
