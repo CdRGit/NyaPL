@@ -56,7 +56,7 @@ public class Compiler {
 	private void ReportError(CompileError error, int contextSize) {
 		if (error is BundledError bundled) {
 			foreach(var err in bundled.Errors) {
-				ReportError(err, 3);
+				ReportError(err, bundled.Errors.Count <= 2 ? contextSize : 3);
 			}
 			return;
 		}
