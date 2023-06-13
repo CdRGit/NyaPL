@@ -132,7 +132,6 @@ public class Solver {
 				var newLeft   = Resolve(ctx, bin.Left);
 				var newRight  = Resolve(ctx, bin.Right);
 				var newResult = Resolve(ctx, bin.Result);
-				Console.WriteLine($"BinOp: {newLeft} {bin.OP} {newRight} = {newResult}");
 				// add new to revisit list to try again later
 				if (HasMeta(ctx, newLeft) || HasMeta(ctx, newRight) || HasMeta(ctx, newResult))
 					revisitT.Add(new TypeConstraint.BinOp(bin.Location, newLeft, newRight, newResult, bin.OP, ctx));
@@ -150,7 +149,6 @@ public class Solver {
 	}
 
 	private bool HasMeta(TypeChecker.Context ctx, Typ type) {
-		Console.WriteLine($"HasMeta({type})");
 		if (type is Meta m) {
 			return true;
 		}
@@ -168,7 +166,6 @@ public class Solver {
 	}
 
 	private Typ Resolve(TypeChecker.Context ctx, Typ type) {
-		Console.WriteLine($"Resolve({type})");
 		if (type is Meta m) {
 			var t = ctx.Force(m);
 			if (t == type) return t;

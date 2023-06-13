@@ -152,7 +152,6 @@ public class TypeChecker {
 	}
 
 	private bool HasMeta(Typ type, int safeMetaLimit) {
-		Console.WriteLine($"HasMeta({type}, {safeMetaLimit})");
 		if (type is Meta m) {
 			return m.ID >= safeMetaLimit;
 		}
@@ -295,7 +294,6 @@ public class TypeChecker {
 			}
 
 			public void Set(int id, Typ type) {
-				Console.WriteLine($"Set({id}, {type})");
 				if (metas.ContainsKey(id)) metas[id] = type;
 				else if (Parent != null) Parent.Set(id, type);
 				else throw new Exception($"Meta {id} not found, this shouldn't happen lol");
@@ -398,7 +396,6 @@ public class TypeChecker {
 		}
 
 		public void EndMetaScope() {
-			Console.WriteLine($"Dropping meta scope:\n{metas}");
 			if (metas.Parent == null) throw new Exception("Ended meta scope too often");
 			metas = metas.Parent;
 		}
@@ -408,7 +405,6 @@ public class TypeChecker {
 		}
 
 		public void EndVariableScope() {
-			Console.WriteLine($"Dropping variable scope:\n{variables}");
 			if (variables.Parent == null) throw new Exception("Ended variable scope too often");
 			variables = variables.Parent;
 		}
@@ -456,8 +452,6 @@ public class TypeChecker {
 		public void Unify(SourceLoc loc, Typ? l, Typ? r) {
 			if (l == null) throw new ArgumentNullException(nameof(l));
 			if (r == null) throw new ArgumentNullException(nameof(r));
-
-			Console.WriteLine($"Unify({l}, {r})");
 
 			if (l is Trivial lT && r is Trivial rT) {
 				if (lT.Name != rT.Name) throw new TypeError(loc, $"{lT.Name} and {rT.Name} are not compatible types");
