@@ -1,0 +1,51 @@
+// define a global mutable variable requires you give it an effect that is implied every time it is used
+// global mutable variables are also restricted in scope to the source file they exist in
+// exactly one effect is given to a variable, multiple variables can share the same sideeffect
+let mut [malloc] freelist: some_type;
+
+// traits for higher kinded types use Self<...> to show how the type is supposed to look
+trait Mappable {
+	effects *E;
+
+	fn [*E *C] map<T,U>(f: fn [*C](x: T) -> U, xs: Self<T>): Self<U>
+}
+
+// for cases where a type has too many generic args you can use `with T -> K<T,...>` to indicate which type argument is the relevant one
+impl<E> Mappable with T -> Result<T, E> {
+	// implementation
+}
+
+// otherwise just use `for K` with the type name directly
+// (this is basically just sugar for `with T,U,V,... -> K<T,U,V,...>` but is way shorter so that's nice)
+impl Mappable for List {
+	// implementation
+}
+
+// another example trait, this one just expects a `Type` kind
+trait Formatable {
+	fn format(&Self): str
+}
+
+// works fine for regular types
+impl Formatable for i32 {}
+
+// and higher kinded types, if you provide the arguments some other way
+impl<T> Formatable for List<T> {}
+impl<T, E> Formatable for Result<T, E> {}
+
+// the `with ...` syntax can also be used for parameter reordering (can't think of a practical example for this but could come in useful)
+impl TwoParameterTrait with T1, T2 -> Result<T2, T1> {}
+
+// typedef defines a transparent type
+typedef i32_passer = fn (i32): i32;
+
+let passer: i32_passer = id<i32>;
+
+// while newtype defines an opaque type (needs to be explicitly converted)
+newtype i32_passer_opaque = fn (i32): i32;
+
+let opaque_passer: i32_passer_opaque = i32_passer_opaque(id<i32>);
+
+// both can be generic
+typedef identity_type<T> = fn (T): T;
+newtype opaque_id_type<T> = fn (T): T;

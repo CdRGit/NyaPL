@@ -1,0 +1,10 @@
+fn main(): i32 {
+	// declare a variable without specifying type
+	let return_val = 0;
+
+	fn returns(): _ {
+		return 0 + 0;
+	}
+
+	return return_val + returns();
+}

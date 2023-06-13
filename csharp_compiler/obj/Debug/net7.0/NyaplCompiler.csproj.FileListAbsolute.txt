@@ -1,0 +1,15 @@
+/media/data/Projects/PLDev/nyapl/csharp_compiler/bin/Debug/net7.0/NyaplCompiler
+/media/data/Projects/PLDev/nyapl/csharp_compiler/bin/Debug/net7.0/NyaplCompiler.deps.json
+/media/data/Projects/PLDev/nyapl/csharp_compiler/bin/Debug/net7.0/NyaplCompiler.runtimeconfig.json
+/media/data/Projects/PLDev/nyapl/csharp_compiler/bin/Debug/net7.0/NyaplCompiler.dll
+/media/data/Projects/PLDev/nyapl/csharp_compiler/bin/Debug/net7.0/NyaplCompiler.pdb
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.csproj.AssemblyReference.cache
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.GeneratedMSBuildEditorConfig.editorconfig
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.AssemblyInfoInputs.cache
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.AssemblyInfo.cs
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.csproj.CoreCompileInputs.cache
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.dll
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/refint/NyaplCompiler.dll
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.pdb
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/NyaplCompiler.genruntimeconfig.cache
+/media/data/Projects/PLDev/nyapl/csharp_compiler/obj/Debug/net7.0/ref/NyaplCompiler.dll
