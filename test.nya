@@ -10,5 +10,10 @@ fn main(): i32 {
 		// of no return
 	}
 
+	fn rip(): i32 {
+		return 0;
+		let code = 5; // rip this code died
+	}
+
 	return return_val + returns();
 }
