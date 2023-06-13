@@ -1,19 +1,3 @@
 fn main(): i32 {
-	// declare a variable without specifying type
-	let return_val = 0;
-
-	fn returns(): _ {
-		return 0 + 0;
-	}
-
-	fn past_the_point(): i32 {
-		// of no return
-	}
-
-	fn rip(): i32 {
-		return 0;
-		let code = 5; // rip this code died
-	}
-
-	return return_val + returns();
+	return 5 + 6 * 7 / 3 - 8 % 4;
 }

@@ -64,15 +64,30 @@ public class Parser {
 		return expr;
 	}
 
-	private ExpressionNode ParseExpression(TokenList.Context tokens) {
-		var expr = ParsePrimary(tokens);
-		// add
-		while (tokens.Match(TokenKind.Plus)) {
-			SourceLoc loc = tokens.Take(TokenKind.Plus).Location;
-			var rExpr = ParsePrimary(tokens);
-			expr = new BinOpNode(loc, expr, BinOpKind.Add, rExpr);
+	private ExpressionNode ParseBinary(TokenList.Context tokens, Func<TokenList.Context, ExpressionNode> childrenParser, Dictionary<TokenKind, BinOpKind> operators) {
+		var expr = childrenParser(tokens);
+		while (operators.ContainsKey(tokens.Current.Kind)) {
+			var kind = tokens.Current.Kind;
+			var loc = tokens.Take(kind).Location;
+			var rExpr = childrenParser(tokens);
+			expr = new BinOpNode(loc, expr, operators[kind], rExpr);
 		}
 		return expr;
+	}
+
+
+	readonly Dictionary<TokenKind, BinOpKind> additive = new() {
+		{TokenKind.Plus,  BinOpKind.Add},
+		{TokenKind.Minus, BinOpKind.Subtract},
+	};
+	readonly Dictionary<TokenKind, BinOpKind> multiplicative = new() {
+		{TokenKind.Star,    BinOpKind.Multiply},
+		{TokenKind.Slash,   BinOpKind.Divide},
+		{TokenKind.Percent, BinOpKind.Modulo},
+	};
+	private ExpressionNode ParseExpression(TokenList.Context tokens) {
+		return ParseBinary(tokens, t => ParseBinary(t, ParsePrimary, multiplicative), additive);
+		// additive
 	}
 
 	private StatementNode ParseStatement(TokenList.Context tokens) {

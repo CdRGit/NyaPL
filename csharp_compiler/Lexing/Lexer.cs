@@ -26,6 +26,11 @@ public class Lexer {
 		{';', TokenKind.SemiColon},
 
 		{'+', TokenKind.Plus},
+		{'-', TokenKind.Minus},
+
+		{'/', TokenKind.Slash},
+		{'*', TokenKind.Star},
+		{'%', TokenKind.Percent},
 	};
 
 	private Dictionary<char, (char next, TokenKind nextFound, TokenKind normal)> multiCharBasics = new() {
@@ -187,6 +192,10 @@ public enum TokenKind {
 	Comma,
 
 	Plus,
+	Minus,
+	Slash,
+	Star,
+	Percent,
 
 	EOF,
 }

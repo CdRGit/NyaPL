@@ -12,6 +12,8 @@ using Nyapl.Typing.Constraints;
 namespace Nyapl.Typing;
 
 public class TypeChecker {
+	private static readonly Typ i32 = new Trivial("i32");
+
 	private SideEffectNode Check(Context ctx, SideEffectNode effect) {
 		return new(effect.Location, effect.Name, new NamedEffect(effect.Name));
 	}
@@ -49,7 +51,7 @@ public class TypeChecker {
 				return new HoleExpressionNode(hole.Location, ctx.NewMeta());
 			}
 			case IntLiteralNode iLit: {
-				return new IntLiteralNode(iLit.Location, iLit.Value, ctx.GetType(iLit.Location, "i32"));
+				return new IntLiteralNode(iLit.Location, iLit.Value, i32);
 			}
 			case VarLookupNode varLookup: {
 				if (!ctx.LookupVar(varLookup.Name, out Typ? t)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
@@ -233,12 +235,17 @@ public class TypeChecker {
 	}
 
 	public class Context {
+
 		Dictionary<string,Typ> namedTypes = new() {
-			{ "i32", new Trivial("i32") },
+			{ "i32", i32 },
 		};
 
 		List<(BinOpKind, Typ, Typ, Typ)> binOperators = new() {
-			(BinOpKind.Add, new Trivial("i32"), new Trivial("i32"), new Trivial("i32")),
+			(BinOpKind.Add,      i32, i32, i32),
+			(BinOpKind.Subtract, i32, i32, i32),
+			(BinOpKind.Multiply, i32, i32, i32),
+			(BinOpKind.Divide,   i32, i32, i32),
+			(BinOpKind.Modulo,   i32, i32, i32),
 		};
 
 		public ReadOnlyCollection<(BinOpKind, Typ, Typ, Typ)> GetBinOperators()
