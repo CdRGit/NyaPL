@@ -1,1 +1,2 @@
-# NyaPL but it rhymes with apple
+# NyaPL: the Nya Programming Language
+## An effect-checked statically typed systems language
