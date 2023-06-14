@@ -127,6 +127,7 @@ public class Parser {
 				// DESTRUCTURE
 				var names = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseDestructureItem);
 				if (names.Children.Count == 1) throw new ParseError(location, "You cannot destructure 1-tuples as they do not exist");
+				if (names.Children.Count == 0) throw new ParseError(location, "You cannot destructure 0-tuples, why would you even want to do that? that does nothing!");
 				tokens.Take(TokenKind.Assign);
 				var val = ParseExpression(tokens);
 				tokens.Take(TokenKind.SemiColon);
@@ -161,6 +162,7 @@ public class Parser {
 	private TupleTypeNode ParseTupleType(TokenList.Context tokens) {
 		var location = tokens.Current.Location;
 		var types = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseType);
+		if (types.Children.Count == 1) throw new ParseError(location, "1-tuples are not permitted");
 		return new(location, types);
 	}
 

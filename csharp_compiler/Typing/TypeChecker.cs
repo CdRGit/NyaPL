@@ -518,7 +518,7 @@ public class TypeChecker {
 				return;
 			} else if (l is Apply lA && r is Apply rA) {
 				if (lA.ParameterTypes.Count != rA.ParameterTypes.Count)
-					throw new TypeError(loc, $"Generic parameter count does not match {lA.ParameterTypes.Count} {rA.ParameterTypes.Count}");
+					throw new TypeError(loc, $"Generic parameter count does not match, Expected: {rA.ParameterTypes.Count}, Actual: {lA.ParameterTypes.Count}");
 				Unify(loc, lA.BaseType, rA.BaseType);
 				lA.ParameterTypes.Zip(rA.ParameterTypes).All((t) => { Unify(loc, t.Item1, t.Item2); return true; });
 				return;
