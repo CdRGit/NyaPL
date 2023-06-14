@@ -22,7 +22,7 @@ public class Localizer {
 		PointerSize = 8,
 		Tags = new[] {"simulator"},
 		Intrinsics = new() {
-			{ "write_num", new Apply(new Function(new Effect[0].ToList().AsReadOnly()), new Typ[] {new Apply(TypeChecker.tuple, new Typ[] {TypeChecker.i32}.ToList().AsReadOnly()), TypeChecker.i32}.ToList().AsReadOnly()) }
+			{ "write_num", new Apply(new Function(new Effect[0].ToList().AsReadOnly()), new Typ[] {new Apply(TypeChecker.tuple, new Typ[0]{}.ToList().AsReadOnly()), TypeChecker.i32}.ToList().AsReadOnly()) }
 		},
 	};
 
