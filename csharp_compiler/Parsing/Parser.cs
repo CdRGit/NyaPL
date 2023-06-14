@@ -63,6 +63,11 @@ public class Parser {
 				return list.Children[0];
 			}
 			return new TupleNode(loc, list);
+		} else if (tokens.Match(KeywordKind.Intrinsic)) {
+			var loc = tokens.Take(KeywordKind.Intrinsic).Location;
+			tokens.Take(TokenKind.Bang);
+			var intrinsic = tokens.Take(TokenKind.Identifier).StrVal;
+			return new IntrinsicNode(loc, intrinsic);
 		}
 		throw new Exception($"ParseAtom(): atom starting with ${tokens.Current} not implemented yet");
 	}

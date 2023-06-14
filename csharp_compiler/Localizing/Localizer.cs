@@ -5,6 +5,10 @@ using System.Collections.ObjectModel;
 
 using Nyapl.Parsing.Tree;
 
+using Nyapl.Typing;
+using Nyapl.Typing.Types;
+using Nyapl.Typing.Effects;
+
 namespace Nyapl.Localizing;
 
 public class Localizer {
@@ -17,6 +21,9 @@ public class Localizer {
 	static readonly Platform simulation = new() {
 		PointerSize = 8,
 		Tags = new[] {"simulator"},
+		Intrinsics = new() {
+			{ "write_num", new Apply(new Function(new Effect[0].ToList().AsReadOnly()), new Typ[] {new Apply(TypeChecker.tuple, new Typ[] {TypeChecker.i32}.ToList().AsReadOnly()), TypeChecker.i32}.ToList().AsReadOnly()) }
+		},
 	};
 
 	public LocalizedFileNode Localize(FileNode file) {
@@ -43,5 +50,14 @@ public class Localizer {
 	public readonly struct Platform {
 		public readonly int PointerSize { get; init; }
 		public readonly string[] Tags { get; init; }
+		public readonly Dictionary<string, Typ> Intrinsics { get; init; }
+
+		public bool HasIntrinsic(string name) {
+			return Intrinsics.ContainsKey(name);
+		}
+
+		public Typ GetIntrinsic(string name) {
+			return Intrinsics[name];
+		}
 	}
 }

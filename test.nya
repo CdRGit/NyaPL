@@ -1,7 +1,7 @@
 platform {
 	[simulator] {
 		fn [stdio] write_num(value: i32): () {
-			//intrinsic!write_num(value);
+			let f = intrinsic!write_num(value);
 
 			return ();
 		}

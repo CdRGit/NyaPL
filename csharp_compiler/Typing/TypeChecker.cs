@@ -3,6 +3,8 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
+using Nyapl.Localizing;
+
 using Nyapl.Parsing.Tree;
 
 using Nyapl.Typing.Types;
@@ -12,9 +14,9 @@ using Nyapl.Typing.Constraints;
 namespace Nyapl.Typing;
 
 public class TypeChecker {
-	private static readonly Typ i32 = new Intrinsic(IntrinsicType.I32);
-	private static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
-	private static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
+	public static readonly Typ i32 = new Intrinsic(IntrinsicType.I32);
+	public static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
+	public static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
 
 	private SideEffectNode Check(Context ctx, SideEffectNode effect) {
 		return new(effect.Location, effect.Name, new NamedEffect(effect.Name));
@@ -84,6 +86,10 @@ public class TypeChecker {
 			case VarLookupNode varLookup: {
 				if (!ctx.LookupVar(varLookup.Name, out Typ? t)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
 				return new VarLookupNode(varLookup.Location, varLookup.Name, t);
+			}
+			case IntrinsicNode intrinsic: {
+				if (!ctx.LookupIntrinsic(intrinsic.Name, out Typ? t)) throw new TypeError(intrinsic.Location, $"Intrisic {intrinsic.Name} does not exist");
+				return new IntrinsicNode(intrinsic.Location, intrinsic.Name, t);
 			}
 			case BinOpNode binOp: {
 				// get type of left operand
@@ -316,7 +322,7 @@ public class TypeChecker {
 	}
 
 	public LocalizedFileNode Check(LocalizedFileNode tree) {
-		var ctx = new Context();
+		var ctx = new Context(tree.Platform);
 		ctx.NewMetaScope();
 		var typeDefs = tree.TypeDefs.Select(t => Check(ctx, t)).ToList().AsReadOnly();
 		foreach (var f in tree.Functions) Check(ctx, f, topLevel: true, shallowPass: true);
@@ -327,6 +333,16 @@ public class TypeChecker {
 	}
 
 	public class Context {
+		private Localizer.Platform Platform { get; }
+
+		public bool LookupIntrinsic(string name, out Typ? type) {
+			if (Platform.HasIntrinsic(name)) {
+				type = Platform.GetIntrinsic(name);
+				return true;
+			}
+			type = null;
+			return false;
+		}
 
 		Dictionary<string,Typ> namedTypes = new() {
 			{ "i32", i32 },
@@ -486,8 +502,8 @@ public class TypeChecker {
 			public override string ToString() => string.Join("\n", variables.Select((pair) => $"\t{pair.Key}: {(pair.Value.isFunc ? "[fn]" : "")}{pair.Value.type}"));
 		}
 
-		public Context() {
-
+		public Context(Localizer.Platform platform) {
+			Platform = platform;
 		}
 
 		public void NewFunction(Typ returnType, ReadOnlyCollection<Effect> effects) {
