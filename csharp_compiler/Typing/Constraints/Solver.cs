@@ -130,7 +130,7 @@ public class Solver {
 				return; // success
 			}
 			case TypeConstraint.BinOp bin: {
-				// check if all three types derive properly
+				// check if all operand types derive properly
 				var newLeft   = Resolve(ctx, bin.Left);
 				var newRight  = Resolve(ctx, bin.Right);
 				// add new to revisit list to try again later
@@ -144,6 +144,24 @@ public class Solver {
 						}
 						return false;
 					}).Any()) throw new TypeError(bin.Location, $"No operator `{bin.OP}` exists where `{newLeft}` {bin.OP} `{newRight}` = `{bin.Result}`");
+					// make sure the constraint is possible
+				}
+				return;
+			}
+			case TypeConstraint.UnOp un: {
+				// check if the operand type derives properly
+				var newOperand = Resolve(ctx, un.Operand);
+				// add new to revisit list to try again later
+				if (HasMeta(ctx, newOperand))
+					revisitT.Add(new TypeConstraint.UnOp(un.Location, newOperand, un.Result, un.OP, ctx));
+				else {
+					if (!ctx.GetUnOperators().Where((v) => {
+						if (v.Item1 == un.OP && typeComparer.Equals(v.Item2, newOperand)) {
+							ctx.Unify(un.Location, v.Item3, un.Result);
+							return true;
+						}
+						return false;
+					}).Any()) throw new TypeError(un.Location, $"No operator `{un.OP}` exists where {un.OP} `{newOperand}` = `{un.Result}`");
 					// make sure the constraint is possible
 				}
 				return;

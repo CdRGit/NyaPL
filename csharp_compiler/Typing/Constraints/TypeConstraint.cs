@@ -62,4 +62,19 @@ public abstract class TypeConstraint {
 			AddMetasForType(ctx, result);
 		}
 	}
+
+	public class UnOp : TypeConstraint {
+		public Typ Operand { get; }
+		public Typ Result { get; }
+		public UnOpKind OP { get; }
+
+		public UnOp(SourceLoc location, Typ operand, Typ result, UnOpKind op, TypeChecker.Context ctx) {
+			Location = location;
+			Operand = operand;
+			Result = result;
+			OP = op;
+			AddMetasForType(ctx, operand);
+			AddMetasForType(ctx, result);
+		}
+	}
 }

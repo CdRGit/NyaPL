@@ -1,13 +1,13 @@
 fn main(): i32 {
 	let tuple = (5, main, 6);
 
-	let value: bool = true;
-	let not_value: bool = true == false;
+	let value = true;
+	let not_value = !value;
 
 	return tuple_adder(tuple);
 }
 
 fn tuple_adder(tuple: (i32, fn(): i32, i32)): i32 {
 	let (x, _, y) = tuple;
-	return x + y;
+	return x - -y;
 }

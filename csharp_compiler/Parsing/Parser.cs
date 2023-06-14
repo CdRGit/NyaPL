@@ -78,6 +78,22 @@ public class Parser {
 		return expr;
 	}
 
+	readonly Dictionary<TokenKind, UnOpKind> unary = new() {
+		{TokenKind.Bang,  UnOpKind.Not},
+		{TokenKind.Plus,  UnOpKind.Positive},
+		{TokenKind.Minus, UnOpKind.Negative},
+	};
+
+	private ExpressionNode ParseUnary(TokenList.Context tokens) {
+		if (unary.ContainsKey(tokens.Current.Kind)) {
+			var kind = tokens.Current.Kind;
+			var loc  = tokens.Take(kind).Location;
+			var expr = ParsePrimary(tokens);
+			return new UnOpNode(loc, expr, unary[kind]);
+		}
+		return ParsePrimary(tokens);
+	}
+
 	private ExpressionNode ParseBinary(TokenList.Context tokens, Func<TokenList.Context, ExpressionNode> childrenParser, Dictionary<TokenKind, BinOpKind> operators) {
 		var expr = childrenParser(tokens);
 		while (operators.ContainsKey(tokens.Current.Kind)) {
@@ -88,7 +104,6 @@ public class Parser {
 		}
 		return expr;
 	}
-
 
 	readonly Dictionary<TokenKind, BinOpKind> additive = new() {
 		{TokenKind.Plus,  BinOpKind.Add},
@@ -104,7 +119,7 @@ public class Parser {
 		{TokenKind.BangEq, BinOpKind.NotEq},
 	};
 	private ExpressionNode ParseExpression(TokenList.Context tokens) {
-		return ParseBinary(tokens, t => ParseBinary(t, t => ParseBinary(t, ParsePrimary, multiplicative), additive), equality);
+		return ParseBinary(tokens, t => ParseBinary(t, t => ParseBinary(t, ParseUnary, multiplicative), additive), equality);
 	}
 
 	private DestructureItemNode ParseDestructureItem(TokenList.Context tokens) {

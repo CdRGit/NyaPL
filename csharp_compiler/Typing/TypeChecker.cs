@@ -96,6 +96,15 @@ public class TypeChecker {
 				ctx.AddTypeConstraint(new TypeConstraint.BinOp(binOp.Location, lExpr.Type!, rExpr.Type!, resultType, binOp.OP, ctx));
 				return new BinOpNode(binOp.Location, lExpr, binOp.OP, rExpr, resultType);
 			}
+			case UnOpNode unOp: {
+				// get type of operand
+				var expr = Check(ctx, unOp.Expr);
+				// create a return type meta
+				var resultType = ctx.NewMeta();
+				// add a constraint for the right unary operator
+				ctx.AddTypeConstraint(new TypeConstraint.UnOp(unOp.Location, expr.Type!, resultType, unOp.OP, ctx));
+				return new UnOpNode(unOp.Location, expr, unOp.OP, resultType);
+			}
 			case CallNode call: {
 				var baseExpr = Check(ctx, call.BaseExpr);
 				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg)).ToList().AsReadOnly());
@@ -303,9 +312,17 @@ public class TypeChecker {
 			(BinOpKind.Equal,    boolean, boolean, boolean),
 			(BinOpKind.NotEq,    boolean, boolean, boolean),
 		};
+		List<(UnOpKind, Typ, Typ)> unOperators = new() {
+			(UnOpKind.Not,      boolean, boolean),
+			(UnOpKind.Positive, i32, i32),
+			(UnOpKind.Negative, i32, i32),
+		};
 
 		public ReadOnlyCollection<(BinOpKind, Typ, Typ, Typ)> GetBinOperators()
 			=> binOperators.AsReadOnly();
+
+		public ReadOnlyCollection<(UnOpKind, Typ, Typ)> GetUnOperators()
+			=> unOperators.AsReadOnly();
 
 		public void DeclareType(SourceLoc loc, string name, Typ type) {
 			if (namedTypes.ContainsKey(name)) throw new TypeError(loc, $"Attempting to redefine type {name}");
