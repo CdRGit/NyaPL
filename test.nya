@@ -1,6 +1,9 @@
 fn main(): i32 {
 	let tuple = (5, main, 6);
 
+	let value: bool = true;
+	let not_value: bool = false;
+
 	return tuple_adder(tuple);
 }
 

@@ -11,6 +11,8 @@ public class Lexer {
 		{"let",    KeywordKind.Let},
 		{"typedef",KeywordKind.TypeDef},
 		{"return", KeywordKind.Return},
+		{"true",   KeywordKind.True},
+		{"false",  KeywordKind.False},
 	};
 
 	private Dictionary<char, TokenKind> basics = new() {
@@ -167,6 +169,9 @@ public enum KeywordKind {
 	TypeDef,
 	Let,
 	Return,
+
+	False,
+	True,
 
 	Hole,
 }

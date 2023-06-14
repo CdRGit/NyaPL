@@ -43,8 +43,11 @@ public class Parser {
 	}
 
 	private ExpressionNode ParseAtom(TokenList.Context tokens) {
-		// all I know is number & VarLookup
-		if (tokens.Match(TokenKind.Integer)) {
+		if (tokens.Match(KeywordKind.True)) {
+			return new BoolLiteralNode(tokens.Take(KeywordKind.True).Location, true);
+		} else if (tokens.Match(KeywordKind.False)) {
+			return new BoolLiteralNode(tokens.Take(KeywordKind.False).Location, false);
+		} else if (tokens.Match(TokenKind.Integer)) {
 			Token token = tokens.Take(TokenKind.Integer);
 			return new IntLiteralNode(token.Location, token.IntVal);
 		} else if (tokens.Match(TokenKind.Identifier)) {

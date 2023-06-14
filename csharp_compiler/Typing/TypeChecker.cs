@@ -13,6 +13,7 @@ namespace Nyapl.Typing;
 
 public class TypeChecker {
 	private static readonly Typ i32 = new Intrinsic(IntrinsicType.I32);
+	private static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
 	private static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
 
 	private SideEffectNode Check(Context ctx, SideEffectNode effect) {
@@ -76,6 +77,9 @@ public class TypeChecker {
 			}
 			case IntLiteralNode iLit: {
 				return new IntLiteralNode(iLit.Location, iLit.Value, i32);
+			}
+			case BoolLiteralNode bLit: {
+				return new BoolLiteralNode(bLit.Location, bLit.Value, boolean);
 			}
 			case VarLookupNode varLookup: {
 				if (!ctx.LookupVar(varLookup.Name, out Typ? t)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
@@ -282,6 +286,7 @@ public class TypeChecker {
 
 		Dictionary<string,Typ> namedTypes = new() {
 			{ "i32", i32 },
+			{ "bool", boolean },
 		};
 
 		List<(BinOpKind, Typ, Typ, Typ)> binOperators = new() {

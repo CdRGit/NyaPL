@@ -17,4 +17,5 @@ public enum IntrinsicType {
 	I32,
 	// other
 	Tuple,
+	Bool,
 }
