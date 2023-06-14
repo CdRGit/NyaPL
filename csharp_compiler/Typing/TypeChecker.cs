@@ -289,6 +289,7 @@ public class TypeChecker {
 			{ "bool", boolean },
 		};
 
+		// TODO rework the way operators work so I can make tuples and functions have equality (assuming all types in the tuple have equality, for functions it doesn't matter)
 		List<(BinOpKind, Typ, Typ, Typ)> binOperators = new() {
 			(BinOpKind.Add,      i32, i32, i32),
 			(BinOpKind.Subtract, i32, i32, i32),
