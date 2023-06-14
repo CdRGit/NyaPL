@@ -33,7 +33,11 @@ public class BinOpNode : ExpressionNode {
 public enum BinOpKind {
 	Add,
 	Subtract,
+
 	Multiply,
 	Divide,
 	Modulo,
+
+	Equal,
+	NotEq,
 }

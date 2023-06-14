@@ -99,9 +99,12 @@ public class Parser {
 		{TokenKind.Slash,   BinOpKind.Divide},
 		{TokenKind.Percent, BinOpKind.Modulo},
 	};
+	readonly Dictionary<TokenKind, BinOpKind> equality = new() {
+		{TokenKind.EqEq,   BinOpKind.Equal},
+		{TokenKind.BangEq, BinOpKind.NotEq},
+	};
 	private ExpressionNode ParseExpression(TokenList.Context tokens) {
-		return ParseBinary(tokens, t => ParseBinary(t, ParsePrimary, multiplicative), additive);
-		// additive
+		return ParseBinary(tokens, t => ParseBinary(t, t => ParseBinary(t, ParsePrimary, multiplicative), additive), equality);
 	}
 
 	private DestructureItemNode ParseDestructureItem(TokenList.Context tokens) {

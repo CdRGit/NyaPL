@@ -295,6 +295,12 @@ public class TypeChecker {
 			(BinOpKind.Multiply, i32, i32, i32),
 			(BinOpKind.Divide,   i32, i32, i32),
 			(BinOpKind.Modulo,   i32, i32, i32),
+
+			(BinOpKind.Equal,    i32, i32, boolean),
+			(BinOpKind.NotEq,    i32, i32, boolean),
+
+			(BinOpKind.Equal,    boolean, boolean, boolean),
+			(BinOpKind.NotEq,    boolean, boolean, boolean),
 		};
 
 		public ReadOnlyCollection<(BinOpKind, Typ, Typ, Typ)> GetBinOperators()

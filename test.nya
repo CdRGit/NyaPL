@@ -2,7 +2,7 @@ fn main(): i32 {
 	let tuple = (5, main, 6);
 
 	let value: bool = true;
-	let not_value: bool = false;
+	let not_value: bool = true == false;
 
 	return tuple_adder(tuple);
 }

@@ -37,6 +37,7 @@ public class Lexer {
 
 	private Dictionary<char, (char next, TokenKind nextFound, TokenKind normal)> multiCharBasics = new() {
 		{'=', ('=', TokenKind.EqEq, TokenKind.Assign)},
+		{'!', ('=', TokenKind.BangEq, TokenKind.Bang)},
 	};
 
 	public TokenList Lex(string sourceFile, string sourceCode) {
@@ -190,7 +191,10 @@ public enum TokenKind {
 	RSquare,
 
 	EqEq,
+	BangEq,
+
 	Assign,
+	Bang,
 
 	Colon,
 	SemiColon,
