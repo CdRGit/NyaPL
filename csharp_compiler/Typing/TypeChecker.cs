@@ -88,6 +88,7 @@ public class TypeChecker {
 				return new VarLookupNode(varLookup.Location, varLookup.Name, t);
 			}
 			case IntrinsicNode intrinsic: {
+				if (!ctx.Unsafe) throw new TypeError(intrinsic.Location, "Intrinsics are not allowed outside of `unsafe` blocks");
 				if (!ctx.LookupIntrinsic(intrinsic.Name, out Typ? t)) throw new TypeError(intrinsic.Location, $"Intrisic {intrinsic.Name} does not exist");
 				return new IntrinsicNode(intrinsic.Location, intrinsic.Name, t);
 			}
@@ -206,6 +207,24 @@ public class TypeChecker {
 			}
 			case FunctionNode func: {
 				return Check(ctx, func);
+			}
+			case UnsafeStatementNode @unsafe: {
+				var wereUnsafe = ctx.Unsafe;
+				ctx.Unsafe = true;
+
+				// check the body
+				var body = new AstListNode<StatementNode>(@unsafe.Body.Location, @unsafe.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
+				var effects = new AstListNode<SideEffectNode>(@unsafe.Effects.Location, @unsafe.Effects.Select(e => Check(ctx, e)).ToList().AsReadOnly());
+				// check sideeffects
+				var metaEffect = ctx.NewMetaEffect();
+				ctx.AddEffectConstraint(new EffectConstraint.Equivalent(@unsafe.Effects.Location, new Effect[] {metaEffect}.ToList().AsReadOnly(), effects.Select(e => e.Effect!).ToList().AsReadOnly()));
+				ctx.AddEffectConstraint(new EffectConstraint.AtMost(@unsafe.Effects.Location, metaEffect, ctx.SideEffects()));
+				ctx.Unsafe = wereUnsafe;
+
+
+				var @new = new UnsafeStatementNode(@unsafe.Location, effects, body);
+
+				return @new;
 			}
 		}
 		throw new Exception($"Unimplemented: Check({statement.GetType().Name})");
@@ -333,6 +352,7 @@ public class TypeChecker {
 	}
 
 	public class Context {
+		public bool Unsafe { get; set; } = false;
 		private Localizer.Platform Platform { get; }
 
 		public bool LookupIntrinsic(string name, out Typ? type) {

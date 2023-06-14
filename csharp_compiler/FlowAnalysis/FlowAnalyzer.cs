@@ -47,6 +47,10 @@ public class FlowAnalyzer {
 					ctx.Returns = true;
 					break;
 
+				case UnsafeStatementNode @unsafe:
+					Analyze(ctx, @unsafe.Body);
+					break;
+
 				// trivial, no impact on control flow
 				case DeclareVarNode:
 				case DestructureNode:

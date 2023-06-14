@@ -204,6 +204,11 @@ public class Parser {
 			return ParseFunction(tokens);
 		} else if (tokens.Match(KeywordKind.If)) {
 			return ParseIfStatement(tokens);
+		} else if (tokens.Match(KeywordKind.Unsafe)) {
+			var loc = tokens.Take(KeywordKind.Unsafe).Location;
+			var effects = ParseList(tokens, TokenKind.LSquare, TokenKind.RSquare, null, ParseSideEffect);
+			var body = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
+			return new UnsafeStatementNode(loc, effects, body);
 		}
 
 		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");

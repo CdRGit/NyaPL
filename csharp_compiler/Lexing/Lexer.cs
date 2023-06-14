@@ -15,6 +15,7 @@ public class Lexer {
 		{"typedef",  KeywordKind.TypeDef},
 		{"return",   KeywordKind.Return},
 		{"platform", KeywordKind.Platform},
+		{"unsafe",   KeywordKind.Unsafe},
 		{"intrinsic",KeywordKind.Intrinsic},
 		{"true",     KeywordKind.True},
 		{"false",    KeywordKind.False},
@@ -176,6 +177,7 @@ public enum KeywordKind {
 	Else,
 
 	Platform,
+	Unsafe,
 	Intrinsic,
 	Function,
 	TypeDef,

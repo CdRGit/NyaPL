@@ -1,9 +1,9 @@
 platform {
 	[simulator] {
 		fn [stdio] write_num(value: i32): () {
-			let f = intrinsic!write_num(value);
-
-			return ();
+			unsafe [stdio] {
+				return intrinsic!write_num(value);
+			}
 		}
 	}
 }
