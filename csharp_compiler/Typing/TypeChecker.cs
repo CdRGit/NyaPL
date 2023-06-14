@@ -315,7 +315,7 @@ public class TypeChecker {
 		return func;
 	}
 
-	public FileNode Check(FileNode tree) {
+	public LocalizedFileNode Check(LocalizedFileNode tree) {
 		var ctx = new Context();
 		ctx.NewMetaScope();
 		var typeDefs = tree.TypeDefs.Select(t => Check(ctx, t)).ToList().AsReadOnly();
@@ -323,7 +323,7 @@ public class TypeChecker {
 		var functions = tree.Functions.Select(f => Check(ctx, f, topLevel: true)).ToList().AsReadOnly();
 		ctx.EndMetaScope();
 		ctx.PrintGlobals();
-		return new(tree.Location, functions, typeDefs);
+		return new(tree.Location, tree.Platform, functions, typeDefs);
 	}
 
 	public class Context {

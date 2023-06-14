@@ -9,6 +9,8 @@ using Nyapl.Lexing;
 using Nyapl.Parsing;
 using Nyapl.Parsing.Tree;
 
+using Nyapl.Localizing;
+
 using Nyapl.Typing;
 
 using Nyapl.FlowAnalysis;
@@ -18,17 +20,19 @@ namespace Nyapl;
 public class Compiler {
 	public Arguments Args { get; }
 
-	private Lexer lexer = new();
-	private Parser       parser = new();
+	private Lexer        lexer        = new();
+	private Parser       parser       = new();
+	private Localizer    localizer;
 	private TypeChecker  typeChecker  = new();
 	private FlowAnalyzer flowAnalyzer = new();
 
 	private List<string> sourceFiles = new();
-	private Dictionary<string, string>    readFiles     = new();
-	private Dictionary<string, TokenList> lexedFiles    = new();
-	private Dictionary<string, FileNode>  parsedFiles   = new();
-	private Dictionary<string, FileNode>  typedFiles    = new();
-	private Dictionary<string, FileNode>  analyzedFiles = new();
+	private Dictionary<string, string>             readFiles      = new();
+	private Dictionary<string, TokenList>          lexedFiles     = new();
+	private Dictionary<string, FileNode>           parsedFiles    = new();
+	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
+	private Dictionary<string, LocalizedFileNode>  typedFiles     = new();
+	private Dictionary<string, LocalizedFileNode>  analyzedFiles  = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -37,6 +41,7 @@ public class Compiler {
 
 	public Compiler(Arguments args) {
 		Args = args;
+		localizer = new(args);
 		sourceFiles.Add(args.File);
 	}
 
@@ -49,7 +54,7 @@ public class Compiler {
 		TokenList tokens = GetTokens(file);
 		foreach (var token in tokens) Console.WriteLine(token);
 
-		FileNode AST = GetAnalyzedAST(file);
+		LocalizedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 	}
 
@@ -119,9 +124,12 @@ public class Compiler {
 	public FileNode GetAST(string file) =>
 		Memoize(file, parsedFiles, f => parser.Parse(GetTokens(f)));
 
-	public FileNode GetTypedAST(string file) =>
-		Memoize(file, typedFiles, f => typeChecker.Check(GetAST(f)));
+	public LocalizedFileNode GetLocalizedAST(string file) =>
+		Memoize(file, localizedFiles, f => localizer.Localize(GetAST(f)));
 
-	public FileNode GetAnalyzedAST(string file) =>
+	public LocalizedFileNode GetTypedAST(string file) =>
+		Memoize(file, typedFiles, f => typeChecker.Check(GetLocalizedAST(f)));
+
+	public LocalizedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
 }

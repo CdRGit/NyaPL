@@ -1,16 +1,15 @@
-fn main(): i32 {
-	let tuple = (5, main, 6);
+platform {
+	[simulator] {
+		fn [stdio] write_num(value: i32): () {
+			//intrinsic!write_num(value);
 
-	if tuple_comparer(tuple) {
-		return 5;
-	} elif false {
-		return -7;
+			return ();
+		}
 	}
-
-	return 20;
 }
 
-fn tuple_comparer(tuple: (i32, fn(): i32, i32)): bool {
-	let (x, _, y) = tuple;
-	return x == y;
+fn [stdio] main(): i32 {
+	let v = write_num(0);
+
+	return 20;
 }

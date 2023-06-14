@@ -6,16 +6,17 @@ namespace Nyapl.Lexing;
 
 public class Lexer {
 	private Dictionary<string, KeywordKind> keywords = new() {
-		{"_",      KeywordKind.Hole},
-		{"fn",     KeywordKind.Function},
-		{"if",     KeywordKind.If},
-		{"elif",   KeywordKind.ElIf},
-		{"else",   KeywordKind.Else},
-		{"let",    KeywordKind.Let},
-		{"typedef",KeywordKind.TypeDef},
-		{"return", KeywordKind.Return},
-		{"true",   KeywordKind.True},
-		{"false",  KeywordKind.False},
+		{"_",        KeywordKind.Hole},
+		{"fn",       KeywordKind.Function},
+		{"if",       KeywordKind.If},
+		{"elif",     KeywordKind.ElIf},
+		{"else",     KeywordKind.Else},
+		{"let",      KeywordKind.Let},
+		{"typedef",  KeywordKind.TypeDef},
+		{"return",   KeywordKind.Return},
+		{"platform", KeywordKind.Platform},
+		{"true",     KeywordKind.True},
+		{"false",    KeywordKind.False},
 	};
 
 	private Dictionary<char, TokenKind> basics = new() {
@@ -173,6 +174,7 @@ public enum KeywordKind {
 	ElIf,
 	Else,
 
+	Platform,
 	Function,
 	TypeDef,
 	Let,

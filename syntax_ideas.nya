@@ -1,3 +1,16 @@
+// platform specific code will be held in a `platform` block for the sake of having simple platform-specific code
+platform {
+	// [] is a list of the required tags for a platform to have
+	[linux_x86_64] {
+		typedef fd = i32;
+	}
+	[cate_16] {
+		struct fd {
+			// other stuff here
+		}
+	}
+}
+
 // define a global mutable variable requires you give it an effect that is implied every time it is used
 // global mutable variables are also restricted in scope to the source file they exist in
 // exactly one effect is given to a variable, multiple variables can share the same sideeffect

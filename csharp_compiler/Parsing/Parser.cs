@@ -254,20 +254,55 @@ public class Parser {
 		return new(start, name.StrVal, type);
 	}
 
+	private PlatformTagNode ParsePlatformTag(TokenList.Context tokens) {
+		var tok = tokens.Take(TokenKind.Identifier);
+		return new(tok.Location, tok.StrVal);
+	}
+
+	private TopLevelPlatformNode.Entry ParseTopLevelPlatformEntry(TokenList.Context tokens) {
+		var loc = tokens.Current.Location;
+		var tags = ParseList(tokens, TokenKind.LSquare, TokenKind.RSquare, null, ParsePlatformTag);
+
+		List<FunctionNode> functions = new();
+		List<TypeDefNode> typedefs = new();
+
+		tokens.Take(TokenKind.LCurly);
+
+		while (!tokens.Match(TokenKind.RCurly)) {
+			if (tokens.Match(KeywordKind.Function)) functions.Add(ParseFunction(tokens));
+			else if (tokens.Match(KeywordKind.TypeDef)) typedefs.Add(ParseTypeDef(tokens));
+			else tokens.Take(KeywordKind.Function);
+		}
+
+		tokens.Take(TokenKind.RCurly);
+
+		return new(loc, tags, functions.AsReadOnly(), typedefs.AsReadOnly());
+	}
+
+	private TopLevelPlatformNode ParseTopLevelPlatform(TokenList.Context tokens) {
+		var loc = tokens.Take(KeywordKind.Platform).Location;
+
+		var entries = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseTopLevelPlatformEntry);
+
+		return new(loc, entries);
+	}
+
 	public FileNode Parse(TokenList tokenList) {
 		TokenList.Context tokens = new(tokenList);
 		SourceLoc start = tokens.Current.Location;
 
 		List<FunctionNode> functions = new();
 		List<TypeDefNode> typedefs = new();
+		List<TopLevelPlatformNode> platforms = new();
 
 		while (!tokens.Match(TokenKind.EOF)) {
 			if (tokens.Match(KeywordKind.Function)) functions.Add(ParseFunction(tokens));
 			else if (tokens.Match(KeywordKind.TypeDef)) typedefs.Add(ParseTypeDef(tokens));
+			else if (tokens.Match(KeywordKind.Platform)) platforms.Add(ParseTopLevelPlatform(tokens));
 			else tokens.Take(KeywordKind.Function);
 		}
 
 		tokens.Take(TokenKind.EOF);
-		return new(start, functions.AsReadOnly(), typedefs.AsReadOnly());
+		return new(start, functions.AsReadOnly(), typedefs.AsReadOnly(), platforms.AsReadOnly());
 	}
 }

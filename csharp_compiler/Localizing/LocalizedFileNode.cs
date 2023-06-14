@@ -1,18 +1,20 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
+using Nyapl.Localizing;
+
 namespace Nyapl.Parsing.Tree;
 
-public class FileNode : AstNode {
+public class LocalizedFileNode : AstNode {
+	public Localizer.Platform Platform { get; }
 	public ReadOnlyCollection<FunctionNode> Functions { get; }
 	public ReadOnlyCollection<TypeDefNode> TypeDefs { get; }
-	public ReadOnlyCollection<TopLevelPlatformNode> Platforms { get; }
 
-	public FileNode(SourceLoc location, ReadOnlyCollection<FunctionNode> functions, ReadOnlyCollection<TypeDefNode> typeDefs, ReadOnlyCollection<TopLevelPlatformNode> platforms) {
+	public LocalizedFileNode(SourceLoc location, Localizer.Platform platform, ReadOnlyCollection<FunctionNode> functions, ReadOnlyCollection<TypeDefNode> typeDefs) {
 		Location = location;
+		Platform = platform;
 		Functions = functions;
 		TypeDefs = typeDefs;
-		Platforms = platforms;
 	}
 
 	public override ReadOnlyCollection<AstNode> GetChildren() {
@@ -20,10 +22,9 @@ public class FileNode : AstNode {
 
 		children.AddRange(TypeDefs);
 		children.AddRange(Functions);
-		children.AddRange(Platforms);
 
 		return children.AsReadOnly();
 	}
 
-	public override string ToString() => "File";
+	public override string ToString() => "LocalizedFile";
 }
