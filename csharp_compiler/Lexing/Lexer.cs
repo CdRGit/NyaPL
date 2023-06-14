@@ -8,6 +8,9 @@ public class Lexer {
 	private Dictionary<string, KeywordKind> keywords = new() {
 		{"_",      KeywordKind.Hole},
 		{"fn",     KeywordKind.Function},
+		{"if",     KeywordKind.If},
+		{"elif",   KeywordKind.ElIf},
+		{"else",   KeywordKind.Else},
 		{"let",    KeywordKind.Let},
 		{"typedef",KeywordKind.TypeDef},
 		{"return", KeywordKind.Return},
@@ -166,6 +169,10 @@ public readonly struct Token {
 }
 
 public enum KeywordKind {
+	If,
+	ElIf,
+	Else,
+
 	Function,
 	TypeDef,
 	Let,

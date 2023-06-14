@@ -125,6 +125,38 @@ public class TypeChecker {
 		throw new Exception($"Unimplemented: Check({expression.GetType().Name})");
 	}
 
+	private ElseStatementNode Check(Context ctx, ElseStatementNode @else) {
+		ctx.NewVariableScope(true);
+		var body = new AstListNode<StatementNode>(@else.Body.Location, @else.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
+		ctx.EndVariableScope();
+
+		return new(@else.Location, body);
+	}
+
+	private ElifStatementNode Check(Context ctx, ElifStatementNode elif) {
+		var expr = Check(ctx, elif.Expr);
+		ctx.Unify(expr.Location, expr.Type!, boolean);
+		ctx.NewVariableScope(true);
+		var body = new AstListNode<StatementNode>(elif.Body.Location, elif.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
+		ctx.EndVariableScope();
+
+		return new(elif.Location, expr, body);
+	}
+
+	private IfStatementNode Check(Context ctx, IfStatementNode ifStatement) {
+		var expr = Check(ctx, ifStatement.IfExpr);
+		ctx.Unify(expr.Location, expr.Type!, boolean);
+		ctx.NewVariableScope(true);
+		var body = new AstListNode<StatementNode>(ifStatement.IfBody.Location, ifStatement.IfBody.Select(s => Check(ctx, s)).ToList().AsReadOnly());
+		ctx.EndVariableScope();
+
+		var elifs = ifStatement.Elifs.Select(e => Check(ctx, e)).ToList().AsReadOnly();
+
+		var @else = ifStatement.Else == null ? null : Check(ctx, ifStatement.Else);
+
+		return new(ifStatement.Location, expr, body, elifs, @else);
+	}
+
 	private StatementNode Check(Context ctx, StatementNode statement) {
 		switch (statement) {
 			case ReturnStatementNode ret: {
@@ -162,6 +194,9 @@ public class TypeChecker {
 					}
 				}
 				return new DestructureNode(destruct.Location, names, expression);
+			}
+			case IfStatementNode @if: {
+				return Check(ctx, @if);
 			}
 			case FunctionNode func: {
 				return Check(ctx, func);

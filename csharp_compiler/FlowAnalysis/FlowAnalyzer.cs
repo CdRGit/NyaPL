@@ -18,11 +18,30 @@ public class FlowAnalyzer {
 			// for now I can just analyze all the statements in here, most do not require a lot of logic
 			switch (statement) {
 				// does not impact control flow but does need to be recursively checked
-				case FunctionNode function:
+				case FunctionNode function: {
 					bool returnsCopy = ctx.Returns;
 					Analyze(ctx, function);
 					ctx.Returns = returnsCopy;
-					break;
+				} break;
+				// Oh Boy
+				case IfStatementNode @if: {
+					bool returnsCopy = ctx.Returns;
+					bool allIfsReturn = @if.Else != null;
+					ctx.Returns = false;
+					Analyze(ctx, @if.IfBody);
+					allIfsReturn &= ctx.Returns;
+					foreach (var elif in @if.Elifs) {
+						ctx.Returns = false;
+						Analyze(ctx, elif.Body);
+						allIfsReturn &= ctx.Returns;
+					}
+					if (@if.Else != null) {
+						ctx.Returns = false;
+						Analyze(ctx, @if.Else.Body);
+						allIfsReturn &= ctx.Returns;
+					}
+					ctx.Returns = returnsCopy || allIfsReturn;
+				} break;
 
 				case ReturnStatementNode @return:
 					ctx.Returns = true;

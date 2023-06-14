@@ -135,6 +135,41 @@ public class Parser {
 		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");
 	}
 
+	private ElifStatementNode ParseElifStatement(TokenList.Context tokens) {
+		var loc = tokens.Take(KeywordKind.ElIf).Location;
+
+		var expr = ParseExpression(tokens);
+		var body = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
+
+		return new(loc, expr, body);
+	}
+
+	private ElseStatementNode ParseElseStatement(TokenList.Context tokens) {
+		var loc = tokens.Take(KeywordKind.Else).Location;
+
+		var body = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
+
+		return new(loc, body);
+	}
+
+	private IfStatementNode ParseIfStatement(TokenList.Context tokens) {
+		var loc = tokens.Take(KeywordKind.If).Location;
+
+		var ifExpr = ParseExpression(tokens);
+
+		var ifBody = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
+
+		var elifs = new List<ElifStatementNode>();
+
+		while (tokens.Match(KeywordKind.ElIf)) {
+			elifs.Add(ParseElifStatement(tokens));
+		}
+
+		var @else = tokens.Match(KeywordKind.Else) ? ParseElseStatement(tokens) : null;
+
+		return new(loc, ifExpr, ifBody, elifs.AsReadOnly(), @else);
+	}
+
 	private StatementNode ParseStatement(TokenList.Context tokens) {
 		if (tokens.Match(KeywordKind.Return)) {
 			var location = tokens.Take(KeywordKind.Return).Location;
@@ -162,6 +197,8 @@ public class Parser {
 			return new DeclareVarNode(location, name, type, expression);
 		} else if (tokens.Match(KeywordKind.Function)) {
 			return ParseFunction(tokens);
+		} else if (tokens.Match(KeywordKind.If)) {
+			return ParseIfStatement(tokens);
 		}
 
 		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");
