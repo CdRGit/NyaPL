@@ -1,12 +1,6 @@
 fn main(): i32 {
 	let tuple = (5, main, 6);
 
-	fn foobar(tuple: (_, _, _)): () {
-		return ();
-	}
-
-	let () = foobar(tuple);
-
 	return tuple_adder(tuple);
 }
 
