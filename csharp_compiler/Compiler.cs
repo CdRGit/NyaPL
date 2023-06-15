@@ -62,7 +62,13 @@ public class Compiler {
 		PrettyPrint(AST);
 
 		IrList instructions = GetIR(file);
-		foreach (var instr in instructions.Instructions) Console.WriteLine(instr);
+		var functionsReversed = instructions.Functions.Select(pair => (pair.Value, pair.Key)).ToDictionary(p => p.Item1, p => p.Item2);
+		int i = 0;
+		foreach (var instr in instructions.Instructions) {
+			if (functionsReversed.ContainsKey(i)) Console.WriteLine($"{functionsReversed[i]}:");
+			i++;
+			Console.WriteLine("    " + instr);
+		}
 		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
 
