@@ -3,4 +3,4 @@ $: currently implementing
 
 IR GENERATOR: implement register sizing
 
-filename -> [reader] -> [lexer] -> [parser] -> [localizer] -> [!importer!] -> [typechecker] -> [flow analyzer] -> [$ir generator$]
+filename -> [reader] -> [lexer] -> [parser] -> [localizer] -> [!importer!] -> [typechecker] -> [!flattener!] -> [flow analyzer] -> [$ir generator$]
