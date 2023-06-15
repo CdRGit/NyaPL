@@ -1,0 +1,4 @@
+!: not implemented yet
+$: currently implementing
+
+filename -> [reader] -> [lexer] -> [parser] -> [localizer] -> [!importer!] -> [typechecker] -> [flow analyzer] -> [$ir generator$]
