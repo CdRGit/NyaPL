@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 using Nyapl.Parsing.Tree;
 
+using Nyapl.Localizing;
+
 namespace Nyapl.FlowAnalysis;
 
 public class FlowAnalyzer {

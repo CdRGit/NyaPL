@@ -15,6 +15,8 @@ using Nyapl.Typing;
 
 using Nyapl.FlowAnalysis;
 
+using Nyapl.IrGeneration;
+
 namespace Nyapl;
 
 public class Compiler {
@@ -25,6 +27,7 @@ public class Compiler {
 	private Localizer    localizer;
 	private TypeChecker  typeChecker  = new();
 	private FlowAnalyzer flowAnalyzer = new();
+	private IrGenerator  irGenerator  = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles      = new();
@@ -33,6 +36,7 @@ public class Compiler {
 	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
 	private Dictionary<string, LocalizedFileNode>  typedFiles     = new();
 	private Dictionary<string, LocalizedFileNode>  analyzedFiles  = new();
+	private Dictionary<string, IrList>             generatedFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -56,6 +60,10 @@ public class Compiler {
 
 		LocalizedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
+
+		IrList instructions = GetIR(file);
+		foreach (var instr in instructions.Instructions) Console.WriteLine(instr);
+		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
 
 	private void ReportError(CompileError error, int contextSize) {
@@ -132,4 +140,7 @@ public class Compiler {
 
 	public LocalizedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
+
+	public IrList GetIR(string file) =>
+		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
 }

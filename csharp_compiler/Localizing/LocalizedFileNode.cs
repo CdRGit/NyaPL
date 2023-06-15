@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
-using Nyapl.Localizing;
+using Nyapl.Parsing.Tree;
 
-namespace Nyapl.Parsing.Tree;
+namespace Nyapl.Localizing;
 
 public class LocalizedFileNode : AstNode {
 	public Localizer.Platform Platform { get; }
