@@ -48,7 +48,7 @@ public class Localizer {
 	}
 
 	public readonly struct Platform {
-		public readonly int PointerSize { get; init; }
+		public readonly ushort PointerSize { get; init; }
 		public readonly string[] Tags { get; init; }
 		public readonly Dictionary<string, Typ> Intrinsics { get; init; }
 

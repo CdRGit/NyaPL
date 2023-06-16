@@ -24,7 +24,7 @@ public class IrGenerator {
 						var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), intrinsic.Name);
 						instructions.Add(new(
 							IrInstr.IrKind.LoadIntrinsic,
-							ctx.GetNewRegister(1),
+							ctx.GetNewRegister(ctx.Platform.PointerSize),
 							(ulong)index
 						));
 					} break;
@@ -34,7 +34,7 @@ public class IrGenerator {
 						// we are looking up a function
 						instructions.Add(new(
 							IrInstr.IrKind.LoadFunction,
-							ctx.GetNewRegister(2),
+							ctx.GetNewRegister(ctx.Platform.PointerSize),
 							ctx.GetFunction(lookup.Name)
 						));
 					} else {
