@@ -2,7 +2,7 @@ platform {
 	[simulator] {
 		fn [stdio] write_num(value: i32): () {
 			unsafe [stdio] {
-				return intrinsic!write_num(value);
+				return intrinsic:write_num(value);
 			}
 		}
 	}
