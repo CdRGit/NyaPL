@@ -16,7 +16,7 @@ public class IrGenerator {
 			case IntLiteralNode integer: {
 					instructions.Add(new(
 						IrInstr.IrKind.IntLiteral,
-						ctx.GetNewRegister(),
+						ctx.GetNewRegister(0),
 						integer.Value
 					));
 				} break;
@@ -24,7 +24,7 @@ public class IrGenerator {
 						var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), intrinsic.Name);
 						instructions.Add(new(
 							IrInstr.IrKind.LoadIntrinsic,
-							ctx.GetNewRegister(),
+							ctx.GetNewRegister(1),
 							(ulong)index
 						));
 					} break;
@@ -34,14 +34,14 @@ public class IrGenerator {
 						// we are looking up a function
 						instructions.Add(new(
 							IrInstr.IrKind.LoadFunction,
-							ctx.GetNewRegister(),
+							ctx.GetNewRegister(2),
 							ctx.GetFunction(lookup.Name)
 						));
 					} else {
 						// variable found
 						instructions.Add(new(
 							IrInstr.IrKind.Copy,
-							ctx.GetNewRegister(),
+							ctx.GetNewRegister(3),
 							register
 						));
 					}
@@ -63,7 +63,7 @@ public class IrGenerator {
 					}
 					instructions.Add(new(
 						IrInstr.IrKind.Call,
-						ctx.GetNewRegister(),
+						ctx.GetNewRegister(4),
 						baseReg
 					));
 				} break;
@@ -76,7 +76,7 @@ public class IrGenerator {
 						case BinOpKind.Multiply:
 							instructions.Add(new(
 								IrInstr.IrKind.Multiply,
-								ctx.GetNewRegister(),
+								ctx.GetNewRegister(5),
 								leftReg,
 								rightReg
 							));
@@ -84,7 +84,7 @@ public class IrGenerator {
 						case BinOpKind.Add:
 							instructions.Add(new(
 								IrInstr.IrKind.Add,
-								ctx.GetNewRegister(),
+								ctx.GetNewRegister(6),
 								leftReg,
 								rightReg
 							));
@@ -135,7 +135,7 @@ public class IrGenerator {
 		foreach (var param in function.Parameters) {
 			instructions.Add(new(
 				IrInstr.IrKind.LoadArgument,
-				ctx.GetNewRegister(),
+				ctx.GetNewRegister(7),
 				i++
 			));
 			ctx.SetVariable(param.Name, ctx.GetPreviousRegister());
@@ -173,10 +173,11 @@ public class IrGenerator {
 		public string[] Functions { get; }
 
 		private ulong currentRegister = 0;
+		private ulong previousRegister = 0;
 		private Dictionary<string, ulong> variables = new();
 
-		public ulong GetNewRegister() => currentRegister++;
-		public ulong GetPreviousRegister() => currentRegister - 1;
+		public ulong GetNewRegister(ushort size) => previousRegister = currentRegister++ | (ulong)size << 48;
+		public ulong GetPreviousRegister() => previousRegister;
 
 		public ulong GetFunction(string name) => (ulong)Array.IndexOf(Functions, name);
 
