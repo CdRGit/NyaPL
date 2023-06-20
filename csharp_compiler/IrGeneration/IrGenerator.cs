@@ -201,6 +201,7 @@ public class IrGenerator {
 		List<IrInstr> instructions = new();
 
 		switch (statement) {
+			case NoopStatementNode: break; // NOP
 			case DeclareVarNode v: {
 				instructions.AddRange(Generate(ctx, v.Expression));
 				ctx.SetVariable(v.Name, ctx.GetPreviousRegister());

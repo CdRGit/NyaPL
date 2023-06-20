@@ -84,8 +84,8 @@ public class TypeChecker {
 				return new BoolLiteralNode(bLit.Location, bLit.Value, boolean);
 			}
 			case VarLookupNode varLookup: {
-				if (!ctx.LookupVar(varLookup.Name, out Typ? t)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
-				return new VarLookupNode(varLookup.Location, varLookup.Name, t);
+				if (!ctx.LookupVar(varLookup.Name, out Typ? t, out var fullName)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
+				return new VarLookupNode(varLookup.Location, fullName, t);
 			}
 			case IntrinsicNode intrinsic: {
 				if (!ctx.Unsafe) throw new TypeError(intrinsic.Location, "Intrinsics are not allowed outside of `unsafe` blocks");
@@ -206,7 +206,8 @@ public class TypeChecker {
 				return Check(ctx, @if);
 			}
 			case FunctionNode func: {
-				return Check(ctx, func);
+				Check(ctx, func);
+				return new NoopStatementNode(func.Location);
 			}
 			case UnsafeStatementNode @unsafe: {
 				var wereUnsafe = ctx.Unsafe;
@@ -304,13 +305,15 @@ public class TypeChecker {
 	}
 
 	private FunctionNode Check(Context ctx, FunctionNode function, bool topLevel = false, bool shallowPass = false) {
+		string fullName = topLevel ? function.Name : ctx.CurrentFunctionName() + "/" + function.Name;
+
 		ctx.NewVariableScope(false);
 
 		var sideEffects = new AstListNode<SideEffectNode>(function.SideEffects.Location, function.SideEffects.Select(s => Check(ctx, s)).ToList().AsReadOnly());
 		var parameters  = new AstListNode<ParameterNode>(function.Parameters.Location, function.Parameters.Select(p => Check(ctx, p, allowHole: !topLevel)).ToList().AsReadOnly());
 		var returnType  = Check(ctx, function.ReturnType, allowHole: !topLevel);
 
-		ctx.NewFunction(returnType.Type!, sideEffects.Select(s => s.Effect!).ToList().AsReadOnly());
+		ctx.NewFunction(returnType.Type!, sideEffects.Select(s => s.Effect!).ToList().AsReadOnly(), fullName);
 
 		if (topLevel)
 			ctx.NewMetaScope();
@@ -318,7 +321,7 @@ public class TypeChecker {
 
 		var body = shallowPass ? function.Body : new AstListNode<StatementNode>(function.Body.Location, function.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
 
-		var func = shallowPass ? function : Zonk<FunctionNode>(ctx, new(function.Location, function.Name, sideEffects, parameters, returnType, body));
+		var func = shallowPass ? function : Zonk<FunctionNode>(ctx, new(function.Location, fullName, sideEffects, parameters, returnType, body));
 
 		if (topLevel) {
 			if (!shallowPass) {
@@ -335,7 +338,11 @@ public class TypeChecker {
 		ctx.EndVariableScope();
 
 		if (!topLevel || shallowPass)
-			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly()), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), isFunc: true)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
+			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly()), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
+
+		if (!topLevel) {
+			ctx.AddNestedFunction(func);
+		}
 
 		return func;
 	}
@@ -345,13 +352,24 @@ public class TypeChecker {
 		ctx.NewMetaScope();
 		var typeDefs = tree.TypeDefs.Select(t => Check(ctx, t)).ToList().AsReadOnly();
 		foreach (var f in tree.Functions) Check(ctx, f, topLevel: true, shallowPass: true);
-		var functions = tree.Functions.Select(f => Check(ctx, f, topLevel: true)).ToList().AsReadOnly();
+		var functions = tree.Functions.Select(f => Check(ctx, f, topLevel: true)).ToList();
 		ctx.EndMetaScope();
 		ctx.PrintGlobals();
-		return new(tree.Location, tree.Platform, functions, typeDefs, ctx);
+		functions.AddRange(ctx.GetNestedFunctions());
+		return new(tree.Location, tree.Platform, functions.AsReadOnly(), typeDefs, ctx);
 	}
 
 	public class Context {
+		private List<FunctionNode> nested = new();
+
+		public void AddNestedFunction(FunctionNode node) {
+			nested.Add(node);
+		}
+
+		public List<FunctionNode> GetNestedFunctions() {
+			return nested;
+		}
+
 		public bool Unsafe { get; set; } = false;
 		private Localizer.Platform Platform { get; }
 
@@ -413,9 +431,11 @@ public class TypeChecker {
 		private readonly struct FunctionInfo {
 			public Typ ReturnType { get; }
 			public ReadOnlyCollection<Effect> Effects { get; }
-			public FunctionInfo(Typ returnType, ReadOnlyCollection<Effect> effects) {
+			public string FullName { get; }
+			public FunctionInfo(Typ returnType, ReadOnlyCollection<Effect> effects, string fullName) {
 				ReturnType = returnType;
 				Effects = effects;
+				FullName = fullName;
 			}
 		}
 
@@ -481,7 +501,7 @@ public class TypeChecker {
 
 		private class VariableScope {
 			public VariableScope? Parent { get; }
-			Dictionary<string, (Typ type, bool isFunc)> variables = new();
+			Dictionary<string, (Typ type, bool isFunc, string fullName)> variables = new();
 			bool CanSearchParent { get; }
 
 			public VariableScope(bool canSearchParent) : this(canSearchParent, null) {}
@@ -490,16 +510,19 @@ public class TypeChecker {
 				CanSearchParent = canSearchParent;
 			}
 
-			public bool Declare(string name, Typ type, bool isFunc) {
+			public bool Declare(string name, Typ type, bool isFunc, string? fullName) {
 				if (variables.ContainsKey(name)) return false;
-				variables[name] = (type, isFunc);
+				variables[name] = (type, isFunc, fullName ?? name);
 				return true;
 			}
 
-			public bool Lookup(string name, out Typ? type, bool returnOnlyFunctions = false) {
+			public bool Lookup(string name, out Typ? type, out string fullName, bool returnOnlyFunctions = false) {
 				type = null;
+				fullName = name;
 				if (variables.ContainsKey(name)) {
 					var v = variables[name];
+					if (v.isFunc)
+						fullName = v.fullName;
 
 					if (returnOnlyFunctions) {
 						// if we are in global scope, return it anyway
@@ -515,7 +538,7 @@ public class TypeChecker {
 					type = v.type;
 					return true;
 				}
-				if (Parent != null) return Parent.Lookup(name, out type, returnOnlyFunctions || !CanSearchParent);
+				if (Parent != null) return Parent.Lookup(name, out type, out fullName, returnOnlyFunctions || !CanSearchParent);
 				return false;
 			}
 
@@ -526,8 +549,8 @@ public class TypeChecker {
 			Platform = platform;
 		}
 
-		public void NewFunction(Typ returnType, ReadOnlyCollection<Effect> effects) {
-			functionData.Push(new(returnType, effects));
+		public void NewFunction(Typ returnType, ReadOnlyCollection<Effect> effects, string fullName) {
+			functionData.Push(new(returnType, effects, fullName));
 		}
 
 		public void EndFunction() {
@@ -540,6 +563,10 @@ public class TypeChecker {
 
 		public ReadOnlyCollection<Effect> SideEffects() {
 			return functionData.Peek().Effects;
+		}
+
+		public string CurrentFunctionName() {
+			return functionData.Peek().FullName;
 		}
 
 		public void NewMetaScope() {
@@ -560,12 +587,12 @@ public class TypeChecker {
 			variables = variables.Parent;
 		}
 
-		public bool DeclareVar(string name, Typ type, bool isFunc = false) {
-			return variables.Declare(name, type, isFunc);
+		public bool DeclareVar(string name, Typ type, bool isFunc = false, string? fullName = null) {
+			return variables.Declare(name, type, isFunc, fullName);
 		}
 
-		public bool LookupVar(string name, out Typ? type) {
-			return variables.Lookup(name, out type);
+		public bool LookupVar(string name, out Typ? type, out string fullName) {
+			return variables.Lookup(name, out type, out fullName);
 		}
 
 		public Typ Force(Typ t) {

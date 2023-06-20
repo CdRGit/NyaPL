@@ -9,7 +9,11 @@ platform {
 }
 
 fn [stdio] main(): i32 {
-	let v = write_num(6 * 10 + 9);
+	fn nested(): i32 {
+		return 6;
+	}
+
+	let v = write_num(nested() * 10 + 9);
 
 	let tuple = get_tuple(5, 7);
 

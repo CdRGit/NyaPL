@@ -56,6 +56,7 @@ public class FlowAnalyzer {
 				// trivial, no impact on control flow
 				case DeclareVarNode:
 				case DestructureNode:
+				case NoopStatementNode: // this one literally does nothing
 					break;
 				default:
 					throw new Exception($"Analyze(ctx, {statement.GetType().Name}) not yet implemented");
