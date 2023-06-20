@@ -40,6 +40,16 @@ public readonly struct IrInstr {
 		Return,
 
 		Multiply,
+		Divide,
+		Modulo,
 		Add,
+		Subtract,
+
+		Equal,
+		NotEq,
+
+		Not,
+		Positive,
+		Negative,
 	}
 }

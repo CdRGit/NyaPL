@@ -108,6 +108,22 @@ public class IrGenerator {
 								rightReg
 							));
 							break;
+						case BinOpKind.Divide:
+							instructions.Add(new(
+								IrInstr.IrKind.Divide,
+								ctx.GetNewRegister(size),
+								leftReg,
+								rightReg
+							));
+							break;
+						case BinOpKind.Modulo:
+							instructions.Add(new(
+								IrInstr.IrKind.Modulo,
+								ctx.GetNewRegister(size),
+								leftReg,
+								rightReg
+							));
+							break;
 						case BinOpKind.Add:
 							instructions.Add(new(
 								IrInstr.IrKind.Add,
@@ -116,8 +132,62 @@ public class IrGenerator {
 								rightReg
 							));
 							break;
+						case BinOpKind.Subtract:
+							instructions.Add(new(
+								IrInstr.IrKind.Subtract,
+								ctx.GetNewRegister(size),
+								leftReg,
+								rightReg
+							));
+							break;
+						case BinOpKind.Equal:
+							instructions.Add(new(
+								IrInstr.IrKind.Equal,
+								ctx.GetNewRegister(size),
+								leftReg,
+								rightReg
+							));
+							break;
+						case BinOpKind.NotEq:
+							instructions.Add(new(
+								IrInstr.IrKind.NotEq,
+								ctx.GetNewRegister(size),
+								leftReg,
+								rightReg
+							));
+							break;
 						default:
 							throw new Exception($"Generating `BinOpKind.{bin.OP}` not implemented yet");
+					}
+				} break;
+			case UnOpNode un: {
+					var size = ctx.TypeCtx.GetSize(un.Type!);
+					instructions.AddRange(Generate(ctx, un.Expr));
+					var reg = ctx.GetPreviousRegister();
+					switch (un.OP) {
+						case UnOpKind.Not:
+							instructions.Add(new(
+								IrInstr.IrKind.Not,
+								ctx.GetNewRegister(size),
+								reg
+							));
+							break;
+						case UnOpKind.Negative:
+							instructions.Add(new(
+								IrInstr.IrKind.Negative,
+								ctx.GetNewRegister(size),
+								reg
+							));
+							break;
+						case UnOpKind.Positive:
+							instructions.Add(new(
+								IrInstr.IrKind.Positive,
+								ctx.GetNewRegister(size),
+								reg
+							));
+							break;
+						default:
+							throw new Exception($"Generating `UnOpKind.{un.OP}` not implemented yet");
 					}
 				} break;
 			default:

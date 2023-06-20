@@ -14,17 +14,17 @@ fn [stdio] main(): i32 {
 	let tuple = get_tuple(5, 7);
 
 	let (_, _, item_2) = tuple;
-	if true {
+	if item_2 == 5 {
 		return 50;
-	} elif false {
+	} elif !(item_2 != 6) {
 		return 60;
 	} else {
-		return 5;
+		return 5 / 6 % 3 - 2;
 	}
 
 	// return item_2;
 }
 
 fn get_tuple(a: i32, b: i32): (i32, fn [stdio] (i32): (), i32) {
-	return (a, write_num, b);
+	return (-a, write_num, +b);
 }
