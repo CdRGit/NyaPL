@@ -667,6 +667,8 @@ public class TypeChecker {
 				switch (i.Type) {
 					case IntrinsicType.I32:
 						return 4;
+					case IntrinsicType.Bool:
+						return 1;
 					default:
 						throw new Exception($"Cannot get size for intrinsic: {i.Type}");
 				}

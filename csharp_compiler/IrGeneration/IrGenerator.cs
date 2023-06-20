@@ -31,6 +31,13 @@ public class IrGenerator {
 							r.Item2
 						)));
 				} break;
+			case BoolLiteralNode boolean: {
+					instructions.Add(new(
+						IrInstr.IrKind.BoolLiteral,
+						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
+						boolean.Value ? 1ul : 0ul
+					));
+				} break;
 			case IntLiteralNode integer: {
 					instructions.Add(new(
 						IrInstr.IrKind.IntLiteral,
@@ -160,8 +167,67 @@ public class IrGenerator {
 				));
 			} break;
 			case UnsafeStatementNode u: {
+				// safety should have been checked by the typechecker, so we just ignore it and append all the instructions in this unsafe block
 				foreach (var s in u.Body) {
 					instructions.AddRange(Generate(ctx, s));
+				}
+			} break;
+			case IfStatementNode i: {
+				// IF
+				instructions.AddRange(Generate(ctx, i.IfExpr));
+				ulong exprReg = ctx.GetPreviousRegister();
+				int jumpToNext = instructions.Count;
+				List<int> jumpToEnd = new();
+				const ulong DEFAULT_OFFSET = 0xFFFF_FFFF_FFFF_FFFF;
+				instructions.Add(new(
+					IrInstr.IrKind.JumpIfFalse,
+					DEFAULT_OFFSET,
+					exprReg
+				));
+				foreach (var s in i.IfBody) {
+					instructions.AddRange(Generate(ctx, s));
+				}
+				jumpToEnd.Add(instructions.Count);
+				instructions.Add(new(
+					IrInstr.IrKind.JumpAlways,
+					DEFAULT_OFFSET
+				));
+				var next = instructions[jumpToNext];
+				instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
+
+				// ELIF
+				foreach (var e in i.Elifs) {
+					instructions.AddRange(Generate(ctx, e.Expr));
+					exprReg = ctx.GetPreviousRegister();
+					jumpToNext = instructions.Count;
+					instructions.Add(new(
+						IrInstr.IrKind.JumpIfFalse,
+						DEFAULT_OFFSET,
+						exprReg
+					));
+					foreach (var s in e.Body) {
+						instructions.AddRange(Generate(ctx, s));
+					}
+					jumpToEnd.Add(instructions.Count);
+					instructions.Add(new(
+						IrInstr.IrKind.JumpAlways,
+						DEFAULT_OFFSET
+					));
+					next = instructions[jumpToNext];
+					instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
+				}
+
+				// ELSE
+				if (i.Else != null) {
+					foreach (var s in i.Else.Body) {
+						instructions.AddRange(Generate(ctx, s));
+					}
+				}
+
+				// time to patch the jumpToEnd table
+				foreach (var idx in jumpToEnd) {
+					next = instructions[idx];
+					instructions[idx] = new(next.Kind, (ulong)(instructions.Count - idx), next.Param1, next.Param2);
 				}
 			} break;
 			default:

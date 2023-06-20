@@ -22,10 +22,8 @@ public readonly struct IrInstr {
 	public override string ToString() => $"{Kind,20} {ParamToString(Param0)} {ParamToString(Param1)} {ParamToString(Param2)}";
 
 	public enum IrKind {
-		Return,
 		StoreParam,
 		StoreTupleSection,
-		Call,
 
 		Copy,
 		LoadArgument,
@@ -34,6 +32,12 @@ public readonly struct IrInstr {
 		LoadIntrinsic,
 
 		IntLiteral,
+		BoolLiteral,
+
+		JumpIfFalse,
+		JumpAlways,
+		Call,
+		Return,
 
 		Multiply,
 		Add,

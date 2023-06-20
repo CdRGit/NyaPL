@@ -16,9 +16,13 @@ fn [stdio] main(): i32 {
 	let (_, _, item_2) = tuple;
 	if true {
 		return 50;
+	} elif false {
+		return 60;
+	} else {
+		return 5;
 	}
 
-	return item_2;
+	// return item_2;
 }
 
 fn get_tuple(a: i32, b: i32): (i32, fn [stdio] (i32): (), i32) {
