@@ -34,8 +34,8 @@ public class Compiler {
 	private Dictionary<string, TokenList>          lexedFiles     = new();
 	private Dictionary<string, FileNode>           parsedFiles    = new();
 	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
-	private Dictionary<string, LocalizedFileNode>  typedFiles     = new();
-	private Dictionary<string, LocalizedFileNode>  analyzedFiles  = new();
+	private Dictionary<string, TypedFileNode>      typedFiles     = new();
+	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
 	private Dictionary<string, IrList>             generatedFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
@@ -58,7 +58,7 @@ public class Compiler {
 		TokenList tokens = GetTokens(file);
 		foreach (var token in tokens) Console.WriteLine(token);
 
-		LocalizedFileNode AST = GetAnalyzedAST(file);
+		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
 		IrList instructions = GetIR(file);
@@ -141,10 +141,10 @@ public class Compiler {
 	public LocalizedFileNode GetLocalizedAST(string file) =>
 		Memoize(file, localizedFiles, f => localizer.Localize(GetAST(f)));
 
-	public LocalizedFileNode GetTypedAST(string file) =>
+	public TypedFileNode GetTypedAST(string file) =>
 		Memoize(file, typedFiles, f => typeChecker.Check(GetLocalizedAST(f)));
 
-	public LocalizedFileNode GetAnalyzedAST(string file) =>
+	public TypedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
 
 	public IrList GetIR(string file) =>

@@ -340,7 +340,7 @@ public class TypeChecker {
 		return func;
 	}
 
-	public LocalizedFileNode Check(LocalizedFileNode tree) {
+	public TypedFileNode Check(LocalizedFileNode tree) {
 		var ctx = new Context(tree.Platform);
 		ctx.NewMetaScope();
 		var typeDefs = tree.TypeDefs.Select(t => Check(ctx, t)).ToList().AsReadOnly();
@@ -348,7 +348,7 @@ public class TypeChecker {
 		var functions = tree.Functions.Select(f => Check(ctx, f, topLevel: true)).ToList().AsReadOnly();
 		ctx.EndMetaScope();
 		ctx.PrintGlobals();
-		return new(tree.Location, tree.Platform, functions, typeDefs);
+		return new(tree.Location, tree.Platform, functions, typeDefs, ctx);
 	}
 
 	public class Context {
@@ -661,5 +661,31 @@ public class TypeChecker {
 		}
 
 		public void PrintGlobals() => Console.WriteLine("Globals:\n" + variables);
+
+		public ushort GetSize(Typ type) {
+			if (type is Intrinsic i) {
+				switch (i.Type) {
+					case IntrinsicType.I32:
+						return 4;
+					default:
+						throw new Exception($"Cannot get size for intrinsic: {i.Type}");
+				}
+			}
+			if (type is Apply a) {
+				switch (a.BaseType) {
+					case Intrinsic aI:
+						switch (aI.Type) {
+							case IntrinsicType.Tuple:
+								return a.ParameterTypes.Select(p => GetSize(p)).Aggregate((ushort)0, (sum, val) => (ushort)(sum + val));
+							default: throw new Exception($"Cannot get size for Apply(Intrinsic): {aI.Type}");
+						}
+					case Function f:
+						return Platform.PointerSize;
+					default:
+						throw new Exception($"Cannot get size for apply: {a}");
+				}
+			}
+			throw new Exception($"Cannot get size for type: {type.GetType().Name}");
+		}
 	}
 }

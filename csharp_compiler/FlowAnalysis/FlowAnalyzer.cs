@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 using Nyapl.Parsing.Tree;
 
-using Nyapl.Localizing;
+using Nyapl.Typing;
 
 namespace Nyapl.FlowAnalysis;
 
@@ -73,7 +73,7 @@ public class FlowAnalyzer {
 		if (!ctx.Returns) ctx.Errors.Add(new FlowError(function.Location, "Not all code paths return"));
 	}
 
-	public LocalizedFileNode Analyze(LocalizedFileNode file) {
+	public TypedFileNode Analyze(TypedFileNode file) {
 		var ctx = new Context();
 		// the only things in a file with flow currently are Functions, which (currently) only have one flow path, will still write the code to theoretically support multiple flow paths, might need to rewrite parts of this
 		foreach (var function in file.Functions) {

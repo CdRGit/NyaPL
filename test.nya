@@ -11,5 +11,16 @@ platform {
 fn [stdio] main(): i32 {
 	let v = write_num(6 * 10 + 9);
 
-	return 20;
+	let tuple = get_tuple(5, 7);
+
+	let (_, _, item_2) = tuple;
+	if true {
+		return 50;
+	}
+
+	return item_2;
+}
+
+fn get_tuple(a: i32, b: i32): (i32, fn [stdio] (i32): (), i32) {
+	return (a, write_num, b);
 }

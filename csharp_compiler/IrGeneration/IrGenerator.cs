@@ -6,6 +6,8 @@ using Nyapl.Parsing.Tree;
 
 using Nyapl.Localizing;
 
+using Nyapl.Typing;
+
 namespace Nyapl.IrGeneration;
 
 public class IrGenerator {
@@ -13,10 +15,26 @@ public class IrGenerator {
 		List<IrInstr> instructions = new();
 
 		switch (expression) {
+			case TupleNode tuple: {
+					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
+					var rollingOffset = 0ul;
+					for (var i = 0; i < valRegs.Length; i++) {
+						instructions.AddRange(Generate(ctx, tuple.Values.Children[i]));
+						valRegs[i] = (ctx.GetPreviousRegister(), rollingOffset);
+						rollingOffset += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
+					}
+					var register = ctx.GetNewRegister(ctx.TypeCtx.GetSize(tuple.Type!));
+					instructions.AddRange(valRegs.Select(r => new IrInstr(
+							IrInstr.IrKind.StoreTupleSection,
+							register,
+							r.Item1,
+							r.Item2
+						)));
+				} break;
 			case IntLiteralNode integer: {
 					instructions.Add(new(
 						IrInstr.IrKind.IntLiteral,
-						ctx.GetNewRegister(0),
+						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
 						integer.Value
 					));
 				} break;
@@ -41,7 +59,7 @@ public class IrGenerator {
 						// variable found
 						instructions.Add(new(
 							IrInstr.IrKind.Copy,
-							ctx.GetNewRegister(3),
+							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
 							register
 						));
 					}
@@ -49,25 +67,27 @@ public class IrGenerator {
 			case CallNode call: {
 					instructions.AddRange(Generate(ctx, call.BaseExpr));
 					var baseReg = ctx.GetPreviousRegister();
-					var argRegs = new ulong[call.Arguments.Children.Count];
+					var argRegs = new (ulong, ulong)[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						instructions.AddRange(Generate(ctx, call.Arguments.Children[i]));
-						argRegs[i] = ctx.GetPreviousRegister();
+						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister() & 0xFFFF_0000_0000_0000);
 					}
-					for (var i = 0; i < argRegs.Length; i++) {
+					for (ulong i = 0; i < (ulong)argRegs.Length; i++) {
 						instructions.Add(new(
 							IrInstr.IrKind.StoreParam,
-							(ulong)i,
-							argRegs[i]
+							i | (argRegs[i].Item2),
+							argRegs[i].Item1
 						));
 					}
 					instructions.Add(new(
 						IrInstr.IrKind.Call,
-						ctx.GetNewRegister(4),
-						baseReg
+						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
+						baseReg,
+						(ulong)call.Arguments.Children.Count
 					));
 				} break;
 			case BinOpNode bin: {
+					var size = ctx.TypeCtx.GetSize(bin.Type!);
 					instructions.AddRange(Generate(ctx, bin.LExpr));
 					var leftReg = ctx.GetPreviousRegister();
 					instructions.AddRange(Generate(ctx, bin.RExpr));
@@ -76,7 +96,7 @@ public class IrGenerator {
 						case BinOpKind.Multiply:
 							instructions.Add(new(
 								IrInstr.IrKind.Multiply,
-								ctx.GetNewRegister(5),
+								ctx.GetNewRegister(size),
 								leftReg,
 								rightReg
 							));
@@ -84,7 +104,7 @@ public class IrGenerator {
 						case BinOpKind.Add:
 							instructions.Add(new(
 								IrInstr.IrKind.Add,
-								ctx.GetNewRegister(6),
+								ctx.GetNewRegister(size),
 								leftReg,
 								rightReg
 							));
@@ -107,6 +127,30 @@ public class IrGenerator {
 			case DeclareVarNode v: {
 				instructions.AddRange(Generate(ctx, v.Expression));
 				ctx.SetVariable(v.Name, ctx.GetPreviousRegister());
+			} break;
+			case DestructureNode d: {
+				instructions.AddRange(Generate(ctx, d.Expression));
+				ulong tupReg = ctx.GetPreviousRegister();
+				ulong rollingOffset = 0;
+				for (int i = 0; i < d.Names.Children.Count; i++) {
+					var name = d.Names.Children[i];
+					switch (name) {
+						case NamedDestructureNode named: {
+								var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
+								instructions.Add(new(
+									IrInstr.IrKind.LoadTupleSection,
+									reg,
+									tupReg,
+									rollingOffset
+								));
+								ctx.SetVariable(named.Name, reg);
+							} break;
+						case HoleDestructureNode: break;
+						default:
+							throw new Exception($"Generating DestructureNode.{name.GetType().Name} not implemented yet");
+					}
+					rollingOffset += ctx.TypeCtx.GetSize(name.Type!);
+				}
 			} break;
 			case ReturnStatementNode r: {
 				instructions.AddRange(Generate(ctx, r.Expression));
@@ -135,8 +179,8 @@ public class IrGenerator {
 		foreach (var param in function.Parameters) {
 			instructions.Add(new(
 				IrInstr.IrKind.LoadArgument,
-				ctx.GetNewRegister(7),
-				i++
+				ctx.GetNewRegister(ctx.TypeCtx.GetSize(param.Type.Type!)),
+				((ulong)ctx.TypeCtx.GetSize(param.Type.Type!) << 48) | (ulong)(i++)
 			));
 			ctx.SetVariable(param.Name, ctx.GetPreviousRegister());
 		}
@@ -148,14 +192,14 @@ public class IrGenerator {
 		return instructions;
 	}
 
-	public IrList Generate(LocalizedFileNode file) {
+	public IrList Generate(TypedFileNode file) {
 		List<IrInstr> instructions = new();
 
 		Dictionary<string, int> functions = new();
+		Context ctx = new(file.Platform, file.Functions.Select(f => f.Name).ToArray(), file.Context);
 
 		foreach(var function in file.Functions) {
 			int fnIdx = instructions.Count;
-			Context ctx = new(file.Platform, file.Functions.Select(f => f.Name).ToArray());
 			instructions.AddRange(Generate(ctx, function));
 			functions[function.Name] = fnIdx;
 		}
@@ -164,12 +208,14 @@ public class IrGenerator {
 	}
 
 	private class Context {
-		public Context(Localizer.Platform platform, string[] functions) {
+		public Context(Localizer.Platform platform, string[] functions, TypeChecker.Context typeCtx) {
 			Platform = platform;
 			Functions = functions;
+			TypeCtx = typeCtx;
 		}
 
 		public Localizer.Platform Platform { get; }
+		public TypeChecker.Context TypeCtx { get; }
 		public string[] Functions { get; }
 
 		private ulong currentRegister = 0;
