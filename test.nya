@@ -10,7 +10,10 @@ platform {
 
 fn [stdio] main(): i32 {
 	fn nested(): i32 {
-		return 6;
+		fn double(): i32 {
+			return 5;
+		}
+		return double();
 	}
 
 	let v = write_num(nested() * 10 + 9);
