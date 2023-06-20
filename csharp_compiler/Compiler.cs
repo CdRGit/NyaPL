@@ -15,6 +15,8 @@ using Nyapl.Typing;
 
 using Nyapl.FlowAnalysis;
 
+using Nyapl.IrGeneration;
+
 namespace Nyapl;
 
 public class Compiler {
@@ -25,14 +27,16 @@ public class Compiler {
 	private Localizer    localizer;
 	private TypeChecker  typeChecker  = new();
 	private FlowAnalyzer flowAnalyzer = new();
+	private IrGenerator  irGenerator  = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles      = new();
 	private Dictionary<string, TokenList>          lexedFiles     = new();
 	private Dictionary<string, FileNode>           parsedFiles    = new();
 	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
-	private Dictionary<string, LocalizedFileNode>  typedFiles     = new();
-	private Dictionary<string, LocalizedFileNode>  analyzedFiles  = new();
+	private Dictionary<string, TypedFileNode>      typedFiles     = new();
+	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
+	private Dictionary<string, IrList>             generatedFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -54,8 +58,18 @@ public class Compiler {
 		TokenList tokens = GetTokens(file);
 		foreach (var token in tokens) Console.WriteLine(token);
 
-		LocalizedFileNode AST = GetAnalyzedAST(file);
+		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
+
+		IrList instructions = GetIR(file);
+		var functionsReversed = instructions.Functions.Select(pair => (pair.Value, pair.Key)).ToDictionary(p => p.Item1, p => p.Item2);
+		int i = 0;
+		foreach (var instr in instructions.Instructions) {
+			if (functionsReversed.ContainsKey(i)) Console.WriteLine($"{functionsReversed[i]}:");
+			i++;
+			Console.WriteLine("    " + instr);
+		}
+		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
 
 	private void ReportError(CompileError error, int contextSize) {
@@ -127,9 +141,12 @@ public class Compiler {
 	public LocalizedFileNode GetLocalizedAST(string file) =>
 		Memoize(file, localizedFiles, f => localizer.Localize(GetAST(f)));
 
-	public LocalizedFileNode GetTypedAST(string file) =>
+	public TypedFileNode GetTypedAST(string file) =>
 		Memoize(file, typedFiles, f => typeChecker.Check(GetLocalizedAST(f)));
 
-	public LocalizedFileNode GetAnalyzedAST(string file) =>
+	public TypedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
+
+	public IrList GetIR(string file) =>
+		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
 }

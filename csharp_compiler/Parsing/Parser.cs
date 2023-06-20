@@ -65,7 +65,7 @@ public class Parser {
 			return new TupleNode(loc, list);
 		} else if (tokens.Match(KeywordKind.Intrinsic)) {
 			var loc = tokens.Take(KeywordKind.Intrinsic).Location;
-			tokens.Take(TokenKind.Bang);
+			tokens.Take(TokenKind.Colon);
 			var intrinsic = tokens.Take(TokenKind.Identifier).StrVal;
 			return new IntrinsicNode(loc, intrinsic);
 		}

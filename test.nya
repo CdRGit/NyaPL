@@ -2,14 +2,36 @@ platform {
 	[simulator] {
 		fn [stdio] write_num(value: i32): () {
 			unsafe [stdio] {
-				return intrinsic!write_num(value);
+				return intrinsic:write_num(value);
 			}
 		}
 	}
 }
 
 fn [stdio] main(): i32 {
-	let v = write_num(0);
+	fn nested(): i32 {
+		fn double(): i32 {
+			return 5;
+		}
+		return double();
+	}
 
-	return 20;
+	let v = write_num(nested() * 10 + 9);
+
+	let tuple = get_tuple(5, 7);
+
+	let (_, _, item_2) = tuple;
+	if item_2 == 5 {
+		return 50;
+	} elif !(item_2 != 6) {
+		return 60;
+	} else {
+		return 5 / 6 % 3 - 2;
+	}
+
+	// return item_2;
+}
+
+fn get_tuple(a: i32, b: i32): (i32, fn [stdio] (i32): (), i32) {
+	return (-a, write_num, +b);
 }

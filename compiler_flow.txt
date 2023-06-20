@@ -1,0 +1,6 @@
+!: not implemented yet
+$: currently implementing
+
+IR GENERATOR: implement register sizing
+
+filename -> [reader] -> [lexer] -> [parser] -> [localizer] -> [!importer!] -> [typechecker] -> [!flattener!] -> [flow analyzer] -> [$ir generator$]
