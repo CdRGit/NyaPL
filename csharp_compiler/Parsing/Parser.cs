@@ -175,6 +175,16 @@ public class Parser {
 		return new(loc, ifExpr, ifBody, elifs.AsReadOnly(), @else);
 	}
 
+	private LValueNode ParseLValue(TokenList.Context tokens) {
+		// for now the only lvalue is a direct identifier
+		if (tokens.Match(TokenKind.Identifier)) {
+			var name = tokens.Take(TokenKind.Identifier);
+
+			return new NamedLValueNode(name.Location, name.StrVal);
+		}
+		throw new Exception($"Cannot parse LValue starting with {tokens.Current}");
+	}
+
 	private StatementNode ParseStatement(TokenList.Context tokens) {
 		if (tokens.Match(KeywordKind.Return)) {
 			var location = tokens.Take(KeywordKind.Return).Location;
@@ -184,7 +194,7 @@ public class Parser {
 		} else if (tokens.Match(KeywordKind.Let)) {
 			// either we're doing a vardeclare or a destructure
 			SourceLoc location = tokens.Take(KeywordKind.Let).Location;
-			
+
 			// check if we are mutable
 			bool mutable = tokens.Match(KeywordKind.Mutable);
 			if (mutable) tokens.Take(KeywordKind.Mutable);
@@ -216,7 +226,15 @@ public class Parser {
 			return new UnsafeStatementNode(loc, effects, body);
 		}
 
-		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");
+		// reassignment
+		var lVal = ParseLValue(tokens);
+
+		var loca = tokens.Take(TokenKind.Assign).Location;
+
+		var expr = ParseExpression(tokens);
+		tokens.Take(TokenKind.SemiColon);
+
+		return new ReassignNode(loca, lVal, expr);
 	}
 
 	private TypeNode ParseTypeTag(TokenList.Context tokens) {

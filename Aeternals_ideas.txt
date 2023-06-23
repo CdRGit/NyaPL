@@ -2,4 +2,4 @@ in typechecker rewrite `BinOp`s and `UnOp`s that use non-builtin-operators into 
 
 also resolve generics here by mangling the names
 
-figure out PHI nodes for loops
+figure out PHI nodes for loops: Intercept compiler by Lens_R?
