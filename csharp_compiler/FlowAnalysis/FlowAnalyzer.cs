@@ -55,6 +55,7 @@ public class FlowAnalyzer {
 
 				// trivial, no impact on control flow
 				case DeclareVarNode:
+				case ReassignNode:
 				case DestructureNode:
 				case NoopStatementNode: // this one literally does nothing
 					break;
