@@ -184,6 +184,11 @@ public class Parser {
 		} else if (tokens.Match(KeywordKind.Let)) {
 			// either we're doing a vardeclare or a destructure
 			SourceLoc location = tokens.Take(KeywordKind.Let).Location;
+			
+			// check if we are mutable
+			bool mutable = tokens.Match(KeywordKind.Mutable);
+			if (mutable) tokens.Take(KeywordKind.Mutable);
+
 			if (tokens.Match(TokenKind.LParen)) {
 				// DESTRUCTURE
 				var names = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseDestructureItem);
@@ -192,14 +197,14 @@ public class Parser {
 				tokens.Take(TokenKind.Assign);
 				var val = ParseExpression(tokens);
 				tokens.Take(TokenKind.SemiColon);
-				return new DestructureNode(location, names, val);
+				return new DestructureNode(location, names, mutable, val);
 			}
 			string name = tokens.Take(TokenKind.Identifier).StrVal;
 			TypeNode type = ParseOptionalTypeTag(tokens);
 			tokens.Take(TokenKind.Assign);
 			ExpressionNode expression = ParseExpression(tokens);
 			tokens.Take(TokenKind.SemiColon);
-			return new DeclareVarNode(location, name, type, expression);
+			return new DeclareVarNode(location, name, mutable, type, expression);
 		} else if (tokens.Match(KeywordKind.Function)) {
 			return ParseFunction(tokens);
 		} else if (tokens.Match(KeywordKind.If)) {

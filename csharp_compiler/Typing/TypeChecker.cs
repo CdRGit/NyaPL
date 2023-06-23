@@ -181,7 +181,7 @@ public class TypeChecker {
 				var expressionType = Check(ctx, dec.Expression);
 				ctx.Unify(declaredType.Location, declaredType.Type, expressionType.Type);
 				if(!ctx.DeclareVar(dec.Name, declaredType.Type!)) throw new TypeError(dec.Location, $"Variable {dec.Name} already declared");
-				return new DeclareVarNode(dec.Location, dec.Name, declaredType, expressionType);
+				return new DeclareVarNode(dec.Location, dec.Name, dec.Mutable, declaredType, expressionType);
 			}
 			case DestructureNode destruct: {
 				var names = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Names.Select(n => Check(ctx, n)).ToList().AsReadOnly());
@@ -200,7 +200,7 @@ public class TypeChecker {
 						default: throw new Exception($"Unknown DestructureItemNode: {name.GetType().Name}");
 					}
 				}
-				return new DestructureNode(destruct.Location, names, expression);
+				return new DestructureNode(destruct.Location, names, destruct.Mutable, expression);
 			}
 			case IfStatementNode @if: {
 				return Check(ctx, @if);
