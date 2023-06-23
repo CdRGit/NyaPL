@@ -197,6 +197,20 @@ public class IrGenerator {
 		return instructions;
 	}
 
+	private List<IrInstr> Generate(Context ctx, LValueNode lVal, ulong sourceRegister) {
+		List<IrInstr> instructions = new();
+
+		switch (lVal) {
+			case NamedLValueNode named: {
+					ctx.SetVariable(named.Name, sourceRegister);
+				} break;
+			default:
+				throw new Exception($"Generate(ctx, {lVal.GetType().Name}, sourceRegister) not implemented yet");
+		}
+
+		return instructions;
+	}
+
 	private List<IrInstr> Generate(Context ctx, StatementNode statement) {
 		List<IrInstr> instructions = new();
 
@@ -205,6 +219,11 @@ public class IrGenerator {
 			case DeclareVarNode v: {
 				instructions.AddRange(Generate(ctx, v.Expression));
 				ctx.SetVariable(v.Name, ctx.GetPreviousRegister());
+			} break;
+			case ReassignNode reassign: {
+				instructions.AddRange(Generate(ctx, reassign.Expr));
+				ulong sourceRegister = ctx.GetPreviousRegister();
+				instructions.AddRange(Generate(ctx, reassign.LVal, sourceRegister));
 			} break;
 			case DestructureNode d: {
 				instructions.AddRange(Generate(ctx, d.Expression));
