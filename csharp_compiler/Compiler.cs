@@ -54,6 +54,109 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
+	private void PrettyPrint(IrInstr instr, string[] functions, string[] intrinsics) {
+		switch (instr.Kind) {
+			case IrInstr.IrKind.JumpAlways: {
+					var label = (instr[0] as IrParam.Label)!.Name;
+					Console.WriteLine($"    jump_always {label}");
+				}
+				break;
+			case IrInstr.IrKind.JumpIfFalse: {
+					var r = (instr[1] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					var label = (instr[0] as IrParam.Label)!.Name;
+					Console.WriteLine($"    jump_if_false(r{idx}:{size}) {label}");
+				}
+				break;
+			case IrInstr.IrKind.LoadFunction: {
+					var r = (instr[0] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					var func = (instr[1] as IrParam.Function)!.Index;
+					Console.WriteLine($"    r{idx}:{size} = &{functions[func]}");
+				}
+				break;
+			case IrInstr.IrKind.LoadIntrinsic: {
+					var r = (instr[0] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					var i = (instr[1] as IrParam.Intrinsic)!.Index;
+					Console.WriteLine($"    r{idx}:{size} = &intrinsic:{intrinsics[i]}");
+				}
+				break;
+			case IrInstr.IrKind.Copy: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rS = (instr[1] as IrParam.Register)!;
+					var idxS = rS.Index;
+					var sizeS = rS.Size;
+					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxS}:{sizeS}");
+				}
+				break;
+			case IrInstr.IrKind.StoreParam: {
+					var pD = (instr[0] as IrParam.Parameter)!;
+					var idxD = pD.Index;
+					var sizeD = pD.Size;
+					var rS = (instr[1] as IrParam.Register)!;
+					var idxS = rS.Index;
+					var sizeS = rS.Size;
+					Console.WriteLine($"    p{idxD}:{sizeD} = r{idxS}:{sizeS}");
+				}
+				break;
+			case IrInstr.IrKind.LoadArgument: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rS = (instr[1] as IrParam.Argument)!;
+					var idxS = rS.Index;
+					var sizeS = rS.Size;
+					Console.WriteLine($"    r{idxD}:{sizeD} = a{idxS}:{sizeS}");
+				}
+				break;
+			case IrInstr.IrKind.Call: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rF = (instr[1] as IrParam.Register)!;
+					var idxF = rF.Index;
+					var sizeF = rF.Size;
+					var count = (instr[2] as IrParam.Count)!.Value;
+					Console.WriteLine($"    r{idxD}:{sizeD} = call r{idxF}:{sizeF}({count})");
+				}
+				break;
+			case IrInstr.IrKind.Return: {
+					var r = (instr[0] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					Console.WriteLine($"    return r{idx}:{size}");
+				}
+				break;
+			case IrInstr.IrKind.IntLiteral: {
+					var r = (instr[0] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					var value = (instr[1] as IrParam.Int)!.Value;
+					Console.WriteLine($"    r{idx}:{size} = {value}");
+				}
+				break;
+			case IrInstr.IrKind.BoolLiteral: {
+					var r = (instr[0] as IrParam.Register)!;
+					var idx = r.Index;
+					var size = r.Size;
+					var value = (instr[1] as IrParam.Bool)!.Value;
+					Console.WriteLine($"    r{idx}:{size} = {value.ToString().ToLower()}");
+				}
+				break;
+			case IrInstr.IrKind.Label:
+				Console.WriteLine($"{(instr[0] as IrParam.Label)!.Name}:");
+				break;
+			default:
+				throw new Exception($"PrettyPrint({instr.Kind}) not implemented yet '{instr}'");
+		}
+	}
+
 	private void PrettyPrint(string file) {
 		TokenList tokens = GetTokens(file);
 		foreach (var token in tokens) Console.WriteLine(token);
@@ -62,12 +165,11 @@ public class Compiler {
 		PrettyPrint(AST);
 
 		IrList instructions = GetIR(file);
-		var functionsReversed = instructions.Functions.Select(pair => (pair.Value, pair.Key)).ToDictionary(p => p.Item1, p => p.Item2);
-		int i = 0;
+		var functions = AST.Functions.Select(f => f.Name).ToArray();
+		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var instr in instructions.Instructions) {
-			if (functionsReversed.ContainsKey(i)) Console.WriteLine($"{functionsReversed[i]}:");
-			i++;
-			Console.WriteLine("    " + instr);
+			// loop over and pretty print
+			PrettyPrint(instr, functions, intrinsics);
 		}
 		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
