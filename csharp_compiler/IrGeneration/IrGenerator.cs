@@ -18,7 +18,7 @@ public class IrGenerator {
 			case TupleNode tuple: {
 					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
 					ushort size = 0;
-					var prevreg = 0ul;
+					IrParam.Register? prevreg = null;
 					for (var i = 0; i < valRegs.Length; i++) {
 						instructions.AddRange(Generate(ctx, tuple.Values.Children[i]));
 						var reg = ctx.GetPreviousRegister();
@@ -30,7 +30,7 @@ public class IrGenerator {
 							instructions.Add(new(
 								IrInstr.IrKind.AppendTupleSection,
 								ctx.GetNewRegister(size),
-								prevreg,
+								prevreg!,
 								reg
 							));
 						}
@@ -40,14 +40,14 @@ public class IrGenerator {
 					instructions.Add(new(
 						IrInstr.IrKind.BoolLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
-						boolean.Value ? 1ul : 0ul
+						new IrParam.Bool(boolean.Value)
 					));
 				} break;
 			case IntLiteralNode integer: {
 					instructions.Add(new(
 						IrInstr.IrKind.IntLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
-						integer.Value
+						new IrParam.Int(integer.Value)
 					));
 				} break;
 			case IntrinsicNode intrinsic: {
@@ -55,17 +55,17 @@ public class IrGenerator {
 						instructions.Add(new(
 							IrInstr.IrKind.LoadIntrinsic,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
-							(ulong)index
+							new IrParam.Intrinsic((ulong)index)
 						));
 					} break;
 			case VarLookupNode lookup: {
 					var register = ctx.GetVariable(lookup.Name);
-					if (register == 0xFFFF_FFFF_FFFF_FFFF) {
+					if (register == null) {
 						// we are looking up a function
 						instructions.Add(new(
 							IrInstr.IrKind.LoadFunction,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
-							ctx.GetFunction(lookup.Name)
+							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
 						));
 					} else {
 						// variable found
@@ -79,15 +79,15 @@ public class IrGenerator {
 			case CallNode call: {
 					instructions.AddRange(Generate(ctx, call.BaseExpr));
 					var baseReg = ctx.GetPreviousRegister();
-					var argRegs = new (ulong, ulong)[call.Arguments.Children.Count];
+					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						instructions.AddRange(Generate(ctx, call.Arguments.Children[i]));
-						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister() & 0xFFFF_0000_0000_0000);
+						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
 					}
-					for (ulong i = 0; i < (ulong)argRegs.Length; i++) {
+					for (uint i = 0; i < argRegs.Length; i++) {
 						instructions.Add(new(
 							IrInstr.IrKind.StoreParam,
-							i | (argRegs[i].Item2),
+							new IrParam.Parameter(argRegs[i].Item2, i),
 							argRegs[i].Item1
 						));
 					}
@@ -95,7 +95,7 @@ public class IrGenerator {
 						IrInstr.IrKind.Call,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
 						baseReg,
-						(ulong)call.Arguments.Children.Count
+						new IrParam.Count((ulong)call.Arguments.Children.Count)
 					));
 				} break;
 			case BinOpNode bin: {
@@ -202,7 +202,7 @@ public class IrGenerator {
 		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, LValueNode lVal, ulong sourceRegister) {
+	private List<IrInstr> Generate(Context ctx, LValueNode lVal, IrParam.Register sourceRegister) {
 		List<IrInstr> instructions = new();
 
 		switch (lVal) {
@@ -227,12 +227,12 @@ public class IrGenerator {
 			} break;
 			case ReassignNode reassign: {
 				instructions.AddRange(Generate(ctx, reassign.Expr));
-				ulong sourceRegister = ctx.GetPreviousRegister();
+				var sourceRegister = ctx.GetPreviousRegister();
 				instructions.AddRange(Generate(ctx, reassign.LVal, sourceRegister));
 			} break;
 			case DestructureNode d: {
 				instructions.AddRange(Generate(ctx, d.Expression));
-				ulong tupReg = ctx.GetPreviousRegister();
+				var tupReg = ctx.GetPreviousRegister();
 				ulong rollingOffset = 0;
 				for (int i = 0; i < d.Names.Children.Count; i++) {
 					var name = d.Names.Children[i];
@@ -243,7 +243,7 @@ public class IrGenerator {
 									IrInstr.IrKind.LoadTupleSection,
 									reg,
 									tupReg,
-									rollingOffset
+									new IrParam.Offset(rollingOffset)
 								));
 								ctx.SetVariable(named.Name, reg);
 							} break;
@@ -270,10 +270,10 @@ public class IrGenerator {
 			case IfStatementNode i: {
 				// IF
 				instructions.AddRange(Generate(ctx, i.IfExpr));
-				ulong exprReg = ctx.GetPreviousRegister();
+				var exprReg = ctx.GetPreviousRegister();
 				int jumpToNext = instructions.Count;
 				List<int> jumpToEnd = new();
-				const ulong DEFAULT_OFFSET = 0xFFFF_FFFF_FFFF_FFFF;
+				IrParam.JumpOffset DEFAULT_OFFSET = new IrParam.JumpOffset(long.MaxValue);
 				instructions.Add(new(
 					IrInstr.IrKind.JumpIfFalse,
 					DEFAULT_OFFSET,
@@ -288,7 +288,7 @@ public class IrGenerator {
 					DEFAULT_OFFSET
 				));
 				var next = instructions[jumpToNext];
-				instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next[1], next[2]);
+				instructions[jumpToNext] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - jumpToNext)), next[1], next[2]);
 
 				// ELIF
 				foreach (var e in i.Elifs) {
@@ -309,7 +309,7 @@ public class IrGenerator {
 						DEFAULT_OFFSET
 					));
 					next = instructions[jumpToNext];
-					instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next[1], next[2]);
+					instructions[jumpToNext] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - jumpToNext)), next[1], next[2]);
 				}
 
 				// ELSE
@@ -322,7 +322,7 @@ public class IrGenerator {
 				// time to patch the jumpToEnd table
 				foreach (var idx in jumpToEnd) {
 					next = instructions[idx];
-					instructions[idx] = new(next.Kind, (ulong)(instructions.Count - idx), next[1], next[2]);
+					instructions[idx] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - idx)), next[1], next[2]);
 				}
 			} break;
 			default:
@@ -336,12 +336,12 @@ public class IrGenerator {
 		List<IrInstr> instructions = new();
 
 		// add arguments to registers
-		ulong i = 0;
+		uint i = 0;
 		foreach (var param in function.Parameters) {
 			instructions.Add(new(
 				IrInstr.IrKind.LoadArgument,
 				ctx.GetNewRegister(ctx.TypeCtx.GetSize(param.Type.Type!)),
-				((ulong)ctx.TypeCtx.GetSize(param.Type.Type!) << 48) | (ulong)(i++)
+				new IrParam.Argument(ctx.TypeCtx.GetSize(param.Type.Type!), i++)
 			));
 			ctx.SetVariable(param.Name, ctx.GetPreviousRegister());
 		}
@@ -379,16 +379,16 @@ public class IrGenerator {
 		public TypeChecker.Context TypeCtx { get; }
 		public string[] Functions { get; }
 
-		private ulong currentRegister = 0;
-		private ulong previousRegister = 0;
-		private Dictionary<string, ulong> variables = new();
+		private uint currentRegister = 0;
+		private IrParam.Register? previousRegister;
+		private Dictionary<string, IrParam.Register> variables = new();
 
-		public ulong GetNewRegister(ushort size) => previousRegister = currentRegister++ | (ulong)size << 48;
-		public ulong GetPreviousRegister() => previousRegister;
+		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
+		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 
 		public ulong GetFunction(string name) => (ulong)Array.IndexOf(Functions, name);
 
-		public void SetVariable(string name, ulong register) => variables[name] = register;
-		public ulong GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : 0xFFFF_FFFF_FFFF_FFFF;
+		public void SetVariable(string name, IrParam.Register register) => variables[name] = register;
+		public IrParam.Register? GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : null;
 	}
 }

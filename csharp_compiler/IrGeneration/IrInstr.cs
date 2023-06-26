@@ -4,21 +4,15 @@ namespace Nyapl.IrGeneration;
 
 public readonly struct IrInstr {
 	public IrKind Kind { get; }
-	public ulong[] Params { get; }
-	public ulong? this[int i] { get => Params.Length > i ? Params[i] : null; }
+	public IrParam[] Params { get; }
+	public IrParam? this[int i] { get => Params.Length > i ? Params[i] : null; }
 
-	public IrInstr(IrKind kind, params ulong?[] param) {
+	public IrInstr(IrKind kind, params IrParam?[] param) {
 		Kind = kind;
-		Params = param.Where(i => i != null).Select(i => i!.Value).ToArray();
+		Params = param.Where(i => i != null).Select(i => i!).ToArray();
 	}
 
-	private static string ParamToString(ulong param) {
-		string tostr = $"{param:X16}";
-		return tostr.Substring(0, 4) + ":" + tostr.Substring(4, 4) + ":" + tostr.Substring(8, 4) + ":" + tostr.Substring(12, 4);
-
-	}
-
-	public override string ToString() => $"{Kind,20} {string.Join(", ", Params.Select(p => ParamToString(p)))}";
+	public override string ToString() => $"{Kind,20} {string.Join(" ", Params.Select(p => $"{p,-20}"))}";
 
 	public enum IrKind {
 		StoreParam,
@@ -50,5 +44,84 @@ public readonly struct IrInstr {
 		Not,
 		Positive,
 		Negative,
+	}
+}
+
+public abstract class IrParam {
+	public class Register : IrParam {
+		public ushort Size { get; }
+		public uint Index { get; }
+		public Register(ushort size, uint index) {
+			Size = size;
+			Index = index;
+		}
+		public override string ToString() => $"Register({Size}, {Index})";
+	}
+	public class Parameter : IrParam {
+		public ushort Size { get; }
+		public uint Index { get; }
+		public Parameter(ushort size, uint index) {
+			Size = size;
+			Index = index;
+		}
+		public override string ToString() => $"Parameter({Size}, {Index})";
+	}
+	public class Argument : IrParam {
+		public ushort Size { get; }
+		public uint Index { get; }
+		public Argument(ushort size, uint index) {
+			Size = size;
+			Index = index;
+		}
+		public override string ToString() => $"Argument({Size}, {Index})";
+	}
+	public class Count : IrParam {
+		public ulong Value { get; }
+		public Count(ulong value) {
+			Value = value;
+		}
+		public override string ToString() => $"Count({Value})";
+	}
+	public class Offset : IrParam {
+		public ulong Value { get; }
+		public Offset(ulong value) {
+			Value = value;
+		}
+		public override string ToString() => $"Offset({Value})";
+	}
+	public class JumpOffset : IrParam {
+		public long Value { get; }
+		public JumpOffset(long value) {
+			Value = value;
+		}
+		public override string ToString() => $"JumpOffset({Value})";
+	}
+	public class Bool : IrParam {
+		public bool Value { get; }
+		public Bool(bool value) {
+			Value = value;
+		}
+		public override string ToString() => $"Bool({Value})";
+	}
+	public class Int : IrParam {
+		public ulong Value { get; }
+		public Int(ulong value) {
+			Value = value;
+		}
+		public override string ToString() => $"Int({Value})";
+	}
+	public class Intrinsic : IrParam {
+		public ulong Index { get; }
+		public Intrinsic(ulong index) {
+			Index = index;
+		}
+		public override string ToString() => $"Intrinsic({Index})";
+	}
+	public class Function : IrParam {
+		public ulong Index { get; }
+		public Function(ulong index) {
+			Index = index;
+		}
+		public override string ToString() => $"Function({Index})";
 	}
 }
