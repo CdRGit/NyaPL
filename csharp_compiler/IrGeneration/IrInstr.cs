@@ -1,16 +1,15 @@
+using System.Linq;
+
 namespace Nyapl.IrGeneration;
 
 public readonly struct IrInstr {
 	public IrKind Kind { get; }
-	public ulong Param0  { get; }
-	public ulong Param1  { get; }
-	public ulong Param2  { get; }
+	public ulong[] Params { get; }
+	public ulong? this[int i] { get => Params.Length > i ? Params[i] : null; }
 
-	public IrInstr(IrKind kind, ulong param0 = 0, ulong param1 = 0, ulong param2 = 0) {
+	public IrInstr(IrKind kind, params ulong?[] param) {
 		Kind = kind;
-		Param0 = param0;
-		Param1 = param1;
-		Param2 = param2;
+		Params = param.Where(i => i != null).Select(i => i!.Value).ToArray();
 	}
 
 	private static string ParamToString(ulong param) {
@@ -19,7 +18,7 @@ public readonly struct IrInstr {
 
 	}
 
-	public override string ToString() => $"{Kind,20} {ParamToString(Param0)} {ParamToString(Param1)} {ParamToString(Param2)}";
+	public override string ToString() => $"{Kind,20} {string.Join(", ", Params.Select(p => ParamToString(p)))}";
 
 	public enum IrKind {
 		StoreParam,

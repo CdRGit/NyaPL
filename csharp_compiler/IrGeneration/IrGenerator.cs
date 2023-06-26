@@ -288,7 +288,7 @@ public class IrGenerator {
 					DEFAULT_OFFSET
 				));
 				var next = instructions[jumpToNext];
-				instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
+				instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next[1], next[2]);
 
 				// ELIF
 				foreach (var e in i.Elifs) {
@@ -309,7 +309,7 @@ public class IrGenerator {
 						DEFAULT_OFFSET
 					));
 					next = instructions[jumpToNext];
-					instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
+					instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next[1], next[2]);
 				}
 
 				// ELSE
@@ -322,7 +322,7 @@ public class IrGenerator {
 				// time to patch the jumpToEnd table
 				foreach (var idx in jumpToEnd) {
 					next = instructions[idx];
-					instructions[idx] = new(next.Kind, (ulong)(instructions.Count - idx), next.Param1, next.Param2);
+					instructions[idx] = new(next.Kind, (ulong)(instructions.Count - idx), next[1], next[2]);
 				}
 			} break;
 			default:
