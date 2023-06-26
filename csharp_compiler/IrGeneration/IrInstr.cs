@@ -15,6 +15,8 @@ public readonly struct IrInstr {
 	public override string ToString() => $"{Kind,20} {string.Join(" ", Params.Select(p => $"{p,-20}"))}";
 
 	public enum IrKind {
+		Phi,
+
 		StoreParam,
 		AppendTupleSection,
 

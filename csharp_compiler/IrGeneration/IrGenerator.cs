@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 using Nyapl.Parsing.Tree;
 
@@ -268,11 +269,14 @@ public class IrGenerator {
 				}
 			} break;
 			case IfStatementNode i: {
+				var preVars = ctx.GetVariables();
+				Dictionary<IrParam.Label, Dictionary<string, IrParam.Register>> deltaVars = new();
+				Dictionary<string, IrParam.Register> bodyDeltas = new();
 				var condLabel = ctx.GetNewLabel("if_cond");
 				var bodyLabel = ctx.GetNewLabel("if_body");
 				var elseLabel = ctx.GetNewLabel("else");
-				List<(IrParam.Label condition, IrParam.Label body)> elifLabels = new();
 				// IF
+				ctx.SetVariables(preVars);
 				instructions.Add(new(
 					IrInstr.IrKind.Label,
 					condLabel
@@ -293,6 +297,12 @@ public class IrGenerator {
 				foreach (var s in i.IfBody) {
 					instructions.AddRange(Generate(ctx, s));
 				}
+				bodyDeltas = new();
+				foreach (var v in ctx.GetVariables()) {
+					if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
+						bodyDeltas.Add(v.Key, v.Value);
+				}
+				deltaVars[bodyLabel] = bodyDeltas;
 				instructions.Add(new(
 					IrInstr.IrKind.JumpAlways,
 					endLabel
@@ -305,7 +315,7 @@ public class IrGenerator {
 				foreach (var e in i.Elifs) {
 					var cond = ctx.GetNewLabel("elif_cond");
 					var body = ctx.GetNewLabel("elif_body");
-					elifLabels.Add((cond, body));
+					ctx.SetVariables(preVars);
 					instructions.Add(new(
 						IrInstr.IrKind.Label,
 						cond
@@ -325,6 +335,12 @@ public class IrGenerator {
 					foreach (var s in e.Body) {
 						instructions.AddRange(Generate(ctx, s));
 					}
+					bodyDeltas = new();
+					foreach (var v in ctx.GetVariables()) {
+						if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
+							bodyDeltas.Add(v.Key, v.Value);
+					}
+					deltaVars[body] = bodyDeltas;
 					instructions.Add(new(
 						IrInstr.IrKind.JumpAlways,
 						endLabel
@@ -337,6 +353,7 @@ public class IrGenerator {
 
 				// ELSE
 				if (i.Else != null) {
+					ctx.SetVariables(preVars);
 					instructions.Add(new(
 						IrInstr.IrKind.Label,
 						elseLabel
@@ -344,6 +361,12 @@ public class IrGenerator {
 					foreach (var s in i.Else.Body) {
 						instructions.AddRange(Generate(ctx, s));
 					}
+					bodyDeltas = new();
+					foreach (var v in ctx.GetVariables()) {
+						if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
+							bodyDeltas.Add(v.Key, v.Value);
+					}
+					deltaVars[elseLabel] = bodyDeltas;
 					instructions.Add(new(
 						IrInstr.IrKind.JumpAlways,
 						endLabel
@@ -354,6 +377,45 @@ public class IrGenerator {
 					IrInstr.IrKind.Label,
 					endLabel
 				));
+
+				List<string> changedVars = new();
+				foreach (var v in preVars) {
+					Console.WriteLine(v);
+				}
+				foreach (var delta in deltaVars) {
+					Console.WriteLine("-");
+					foreach (var v in delta.Value) {
+						Console.WriteLine(v);
+						changedVars.Add(v.Key);
+					}
+				}
+				changedVars = changedVars.Distinct().ToList();
+				Console.WriteLine("changed vars:");
+				foreach (var v in changedVars) {
+					Console.Write(v);
+					// need to add phi nodes for all these variables
+					Console.WriteLine(":");
+					Dictionary<IrParam.Label, IrParam.Register> registers = new();
+					foreach (var label in deltaVars.Keys) {
+						var vals = deltaVars[label];
+						if (vals.ContainsKey(v)) {
+							Console.WriteLine($"CHANGED in {label.Name}");
+							registers[label] = vals[v];
+						}
+						else {
+							// keep the same
+							Console.WriteLine($"UNCHANGED in {label.Name}");
+							registers[label] = preVars[v];
+						}
+					}
+					var destReg = ctx.GetNewRegister(preVars[v].Size);
+					var list = new IrParam[] {destReg}.Concat(registers.SelectMany(p => new[] {(IrParam)p.Key, (IrParam)p.Value})).ToArray();
+					instructions.Add(new(
+						IrInstr.IrKind.Phi,
+						list
+					));
+					ctx.SetVariable(v, destReg);
+				}
 			} break;
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
@@ -422,11 +484,13 @@ public class IrGenerator {
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 
-
 		private Dictionary<string, IrParam.Register> variables = new();
 
 		public void SetVariable(string name, IrParam.Register register) => variables[name] = register;
 		public IrParam.Register? GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : null;
+
+		public ReadOnlyDictionary<string, IrParam.Register> GetVariables() => variables.ToDictionary(p => p.Key, p => p.Value).AsReadOnly();
+		public void SetVariables(ReadOnlyDictionary<string, IrParam.Register> newVars) => variables = newVars.ToDictionary(p => p.Key, p => p.Value);
 
 		private Dictionary<string, int> labels = new();
 

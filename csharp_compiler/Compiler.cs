@@ -161,6 +161,19 @@ public class Compiler {
 					Console.WriteLine($"    r{idx}:{size} = {value.ToString().ToLower()}");
 				}
 				break;
+			case IrInstr.IrKind.Add: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rL = (instr[1] as IrParam.Register)!;
+					var idxL = rL.Index;
+					var sizeL = rL.Size;
+					var rR = (instr[2] as IrParam.Register)!;
+					var idxR = rR.Index;
+					var sizeR = rR.Size;
+					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} + r{idxR}:{sizeR}");
+				}
+				break;
 			case IrInstr.IrKind.Multiply: {
 					var rD = (instr[0] as IrParam.Register)!;
 					var idxD = rD.Index;
@@ -174,9 +187,38 @@ public class Compiler {
 					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} * r{idxR}:{sizeR}");
 				}
 				break;
+			case IrInstr.IrKind.Divide: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rL = (instr[1] as IrParam.Register)!;
+					var idxL = rL.Index;
+					var sizeL = rL.Size;
+					var rR = (instr[2] as IrParam.Register)!;
+					var idxR = rR.Index;
+					var sizeR = rR.Size;
+					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} / r{idxR}:{sizeR}");
+				}
+				break;
 			case IrInstr.IrKind.Label:
 				FG(ConsoleColor.Blue);
 				Console.WriteLine($"{(instr[0] as IrParam.Label)!.Name}:");
+				break;
+			case IrInstr.IrKind.Phi: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var ps = instr.Params.Skip(1).ToArray();
+					var values = new List<string>();
+					for (int i = 0; i < ps.Length; i+=2) {
+						var rS = (ps[i + 1] as IrParam.Register)!;
+						var idxS = rS.Index;
+						var sizeS = rS.Size;
+						values.Add($"{(ps[i + 0] as IrParam.Label)!.Name}: r{idxS}:{sizeS}");
+					}
+					FG(ConsoleColor.Blue);
+					Console.WriteLine($"    r{idxD}:{sizeD} = PHI [{string.Join(", ", values)}]");
+				}
 				break;
 			default:
 				throw new Exception($"PrettyPrint({instr.Kind}) not implemented yet '{instr}'");
