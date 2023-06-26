@@ -55,9 +55,12 @@ public class Compiler {
 	}
 
 	private void PrettyPrint(IrInstr instr, string[] functions, string[] intrinsics) {
+		void FG(ConsoleColor col) => Console.ForegroundColor = col;
+
 		switch (instr.Kind) {
 			case IrInstr.IrKind.JumpAlways: {
 					var label = (instr[0] as IrParam.Label)!.Name;
+					FG(ConsoleColor.Cyan);
 					Console.WriteLine($"    jump_always {label}");
 				}
 				break;
@@ -66,6 +69,7 @@ public class Compiler {
 					var idx = r.Index;
 					var size = r.Size;
 					var label = (instr[0] as IrParam.Label)!.Name;
+					FG(ConsoleColor.Cyan);
 					Console.WriteLine($"    jump_if_false(r{idx}:{size}) {label}");
 				}
 				break;
@@ -74,6 +78,7 @@ public class Compiler {
 					var idx = r.Index;
 					var size = r.Size;
 					var func = (instr[1] as IrParam.Function)!.Index;
+					FG(ConsoleColor.Magenta);
 					Console.WriteLine($"    r{idx}:{size} = &{functions[func]}");
 				}
 				break;
@@ -82,6 +87,7 @@ public class Compiler {
 					var idx = r.Index;
 					var size = r.Size;
 					var i = (instr[1] as IrParam.Intrinsic)!.Index;
+					FG(ConsoleColor.Magenta);
 					Console.WriteLine($"    r{idx}:{size} = &intrinsic:{intrinsics[i]}");
 				}
 				break;
@@ -102,6 +108,7 @@ public class Compiler {
 					var rS = (instr[1] as IrParam.Register)!;
 					var idxS = rS.Index;
 					var sizeS = rS.Size;
+					FG(ConsoleColor.Yellow);
 					Console.WriteLine($"    p{idxD}:{sizeD} = r{idxS}:{sizeS}");
 				}
 				break;
@@ -112,6 +119,7 @@ public class Compiler {
 					var rS = (instr[1] as IrParam.Argument)!;
 					var idxS = rS.Index;
 					var sizeS = rS.Size;
+					FG(ConsoleColor.Magenta);
 					Console.WriteLine($"    r{idxD}:{sizeD} = a{idxS}:{sizeS}");
 				}
 				break;
@@ -123,6 +131,7 @@ public class Compiler {
 					var idxF = rF.Index;
 					var sizeF = rF.Size;
 					var count = (instr[2] as IrParam.Count)!.Value;
+					FG(ConsoleColor.Green);
 					Console.WriteLine($"    r{idxD}:{sizeD} = call r{idxF}:{sizeF}({count})");
 				}
 				break;
@@ -130,6 +139,7 @@ public class Compiler {
 					var r = (instr[0] as IrParam.Register)!;
 					var idx = r.Index;
 					var size = r.Size;
+					FG(ConsoleColor.Red);
 					Console.WriteLine($"    return r{idx}:{size}");
 				}
 				break;
@@ -138,6 +148,7 @@ public class Compiler {
 					var idx = r.Index;
 					var size = r.Size;
 					var value = (instr[1] as IrParam.Int)!.Value;
+					FG(ConsoleColor.Magenta);
 					Console.WriteLine($"    r{idx}:{size} = {value}");
 				}
 				break;
@@ -146,15 +157,31 @@ public class Compiler {
 					var idx = r.Index;
 					var size = r.Size;
 					var value = (instr[1] as IrParam.Bool)!.Value;
+					FG(ConsoleColor.Magenta);
 					Console.WriteLine($"    r{idx}:{size} = {value.ToString().ToLower()}");
 				}
 				break;
+			case IrInstr.IrKind.Multiply: {
+					var rD = (instr[0] as IrParam.Register)!;
+					var idxD = rD.Index;
+					var sizeD = rD.Size;
+					var rL = (instr[1] as IrParam.Register)!;
+					var idxL = rL.Index;
+					var sizeL = rL.Size;
+					var rR = (instr[2] as IrParam.Register)!;
+					var idxR = rR.Index;
+					var sizeR = rR.Size;
+					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} * r{idxR}:{sizeR}");
+				}
+				break;
 			case IrInstr.IrKind.Label:
+				FG(ConsoleColor.Blue);
 				Console.WriteLine($"{(instr[0] as IrParam.Label)!.Name}:");
 				break;
 			default:
 				throw new Exception($"PrettyPrint({instr.Kind}) not implemented yet '{instr}'");
 		}
+		Console.ResetColor();
 	}
 
 	private void PrettyPrint(string file) {

@@ -268,7 +268,15 @@ public class IrGenerator {
 				}
 			} break;
 			case IfStatementNode i: {
+				var condLabel = ctx.GetNewLabel("if_cond");
+				var bodyLabel = ctx.GetNewLabel("if_body");
+				var elseLabel = ctx.GetNewLabel("else");
+				List<(IrParam.Label condition, IrParam.Label body)> elifLabels = new();
 				// IF
+				instructions.Add(new(
+					IrInstr.IrKind.Label,
+					condLabel
+				));
 				instructions.AddRange(Generate(ctx, i.IfExpr));
 				var exprReg = ctx.GetPreviousRegister();
 				var endLabel = ctx.GetNewLabel("if_end");
@@ -277,6 +285,10 @@ public class IrGenerator {
 					IrInstr.IrKind.JumpIfFalse,
 					nextLabel,
 					exprReg
+				));
+				instructions.Add(new(
+					IrInstr.IrKind.Label,
+					bodyLabel
 				));
 				foreach (var s in i.IfBody) {
 					instructions.AddRange(Generate(ctx, s));
@@ -291,6 +303,13 @@ public class IrGenerator {
 				));
 				// ELIF
 				foreach (var e in i.Elifs) {
+					var cond = ctx.GetNewLabel("elif_cond");
+					var body = ctx.GetNewLabel("elif_body");
+					elifLabels.Add((cond, body));
+					instructions.Add(new(
+						IrInstr.IrKind.Label,
+						cond
+					));
 					instructions.AddRange(Generate(ctx, e.Expr));
 					exprReg = ctx.GetPreviousRegister();
 					nextLabel = ctx.GetNewLabel("elif_next");
@@ -298,6 +317,10 @@ public class IrGenerator {
 						IrInstr.IrKind.JumpIfFalse,
 						nextLabel,
 						exprReg
+					));
+					instructions.Add(new(
+						IrInstr.IrKind.Label,
+						body
 					));
 					foreach (var s in e.Body) {
 						instructions.AddRange(Generate(ctx, s));
@@ -314,6 +337,10 @@ public class IrGenerator {
 
 				// ELSE
 				if (i.Else != null) {
+					instructions.Add(new(
+						IrInstr.IrKind.Label,
+						elseLabel
+					));
 					foreach (var s in i.Else.Body) {
 						instructions.AddRange(Generate(ctx, s));
 					}
@@ -403,6 +430,6 @@ public class IrGenerator {
 
 		private Dictionary<string, int> labels = new();
 
-		public IrParam.Label GetNewLabel(string name) => new IrParam.Label(labels.ContainsKey(name) ? $".{name}_{labels[name]++}" : $".{name}_{labels[name] = 1}");
+		public IrParam.Label GetNewLabel(string name) => new IrParam.Label(labels.ContainsKey(name) ? $".{name}_{++labels[name]}" : $".{name}_{labels[name] = 0}");
 	}
 }

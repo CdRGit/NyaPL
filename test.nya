@@ -13,6 +13,13 @@ fn [stdio] main(): i32 {
 	if false {
 		a = 5;
 	} // we need PHI
+	elif false {
+		a = 6;
+	} elif false {
+		a = 7;
+	} else {
+		a = a * a;
+	}
 	let v = write_num(a);
 	return a;
 }
