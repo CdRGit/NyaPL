@@ -271,45 +271,45 @@ public class IrGenerator {
 				// IF
 				instructions.AddRange(Generate(ctx, i.IfExpr));
 				var exprReg = ctx.GetPreviousRegister();
-				int jumpToNext = instructions.Count;
-				List<int> jumpToEnd = new();
-				IrParam.JumpOffset DEFAULT_OFFSET = new IrParam.JumpOffset(long.MaxValue);
+				var endLabel = ctx.GetNewLabel("if_end");
+				var nextLabel = ctx.GetNewLabel("if_next");
 				instructions.Add(new(
 					IrInstr.IrKind.JumpIfFalse,
-					DEFAULT_OFFSET,
+					nextLabel,
 					exprReg
 				));
 				foreach (var s in i.IfBody) {
 					instructions.AddRange(Generate(ctx, s));
 				}
-				jumpToEnd.Add(instructions.Count);
 				instructions.Add(new(
 					IrInstr.IrKind.JumpAlways,
-					DEFAULT_OFFSET
+					endLabel
 				));
-				var next = instructions[jumpToNext];
-				instructions[jumpToNext] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - jumpToNext)), next[1], next[2]);
-
+				instructions.Add(new(
+					IrInstr.IrKind.Label,
+					nextLabel
+				));
 				// ELIF
 				foreach (var e in i.Elifs) {
 					instructions.AddRange(Generate(ctx, e.Expr));
 					exprReg = ctx.GetPreviousRegister();
-					jumpToNext = instructions.Count;
+					nextLabel = ctx.GetNewLabel("elif_next");
 					instructions.Add(new(
 						IrInstr.IrKind.JumpIfFalse,
-						DEFAULT_OFFSET,
+						nextLabel,
 						exprReg
 					));
 					foreach (var s in e.Body) {
 						instructions.AddRange(Generate(ctx, s));
 					}
-					jumpToEnd.Add(instructions.Count);
 					instructions.Add(new(
 						IrInstr.IrKind.JumpAlways,
-						DEFAULT_OFFSET
+						endLabel
 					));
-					next = instructions[jumpToNext];
-					instructions[jumpToNext] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - jumpToNext)), next[1], next[2]);
+					instructions.Add(new(
+						IrInstr.IrKind.Label,
+						nextLabel
+					));
 				}
 
 				// ELSE
@@ -317,13 +317,16 @@ public class IrGenerator {
 					foreach (var s in i.Else.Body) {
 						instructions.AddRange(Generate(ctx, s));
 					}
+					instructions.Add(new(
+						IrInstr.IrKind.JumpAlways,
+						endLabel
+					));
 				}
 
-				// time to patch the jumpToEnd table
-				foreach (var idx in jumpToEnd) {
-					next = instructions[idx];
-					instructions[idx] = new(next.Kind, new IrParam.JumpOffset((long)(instructions.Count - idx)), next[1], next[2]);
-				}
+				instructions.Add(new(
+					IrInstr.IrKind.Label,
+					endLabel
+				));
 			} break;
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
@@ -334,6 +337,10 @@ public class IrGenerator {
 
 	private List<IrInstr> Generate(Context ctx, FunctionNode function) {
 		List<IrInstr> instructions = new();
+		instructions.Add(new(
+			IrInstr.IrKind.Label,
+			new IrParam.Label(function.Name)
+		));
 
 		// add arguments to registers
 		uint i = 0;
@@ -379,16 +386,23 @@ public class IrGenerator {
 		public TypeChecker.Context TypeCtx { get; }
 		public string[] Functions { get; }
 
+		public ulong GetFunction(string name) => (ulong)Array.IndexOf(Functions, name);
+
+
 		private uint currentRegister = 0;
 		private IrParam.Register? previousRegister;
-		private Dictionary<string, IrParam.Register> variables = new();
 
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 
-		public ulong GetFunction(string name) => (ulong)Array.IndexOf(Functions, name);
+
+		private Dictionary<string, IrParam.Register> variables = new();
 
 		public void SetVariable(string name, IrParam.Register register) => variables[name] = register;
 		public IrParam.Register? GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : null;
+
+		private Dictionary<string, int> labels = new();
+
+		public IrParam.Label GetNewLabel(string name) => new IrParam.Label(labels.ContainsKey(name) ? $".{name}_{labels[name]++}" : $".{name}_{labels[name] = 1}");
 	}
 }

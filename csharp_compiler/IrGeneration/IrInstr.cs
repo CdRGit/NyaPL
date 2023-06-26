@@ -29,6 +29,9 @@ public readonly struct IrInstr {
 
 		JumpIfFalse,
 		JumpAlways,
+
+		Label,
+
 		Call,
 		Return,
 
@@ -89,13 +92,6 @@ public abstract class IrParam {
 		}
 		public override string ToString() => $"Offset({Value})";
 	}
-	public class JumpOffset : IrParam {
-		public long Value { get; }
-		public JumpOffset(long value) {
-			Value = value;
-		}
-		public override string ToString() => $"JumpOffset({Value})";
-	}
 	public class Bool : IrParam {
 		public bool Value { get; }
 		public Bool(bool value) {
@@ -123,5 +119,12 @@ public abstract class IrParam {
 			Index = index;
 		}
 		public override string ToString() => $"Function({Index})";
+	}
+	public class Label : IrParam {
+		public string Name { get; }
+		public Label(string name) {
+			Name = name;
+		}
+		public override string ToString() => $"Label({Name})";
 	}
 }
