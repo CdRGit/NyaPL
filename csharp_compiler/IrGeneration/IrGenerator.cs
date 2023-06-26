@@ -17,19 +17,24 @@ public class IrGenerator {
 		switch (expression) {
 			case TupleNode tuple: {
 					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
-					var rollingOffset = 0ul;
+					ushort size = 0;
+					var prevreg = 0ul;
 					for (var i = 0; i < valRegs.Length; i++) {
 						instructions.AddRange(Generate(ctx, tuple.Values.Children[i]));
-						valRegs[i] = (ctx.GetPreviousRegister(), rollingOffset);
-						rollingOffset += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
+						var reg = ctx.GetPreviousRegister();
+						size += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
+						if (i == 0) {
+							prevreg = reg;
+						} else {
+							var register = ctx.GetNewRegister(size);
+							instructions.Add(new(
+								IrInstr.IrKind.AppendTupleSection,
+								ctx.GetNewRegister(size),
+								prevreg,
+								reg
+							));
+						}
 					}
-					var register = ctx.GetNewRegister(ctx.TypeCtx.GetSize(tuple.Type!));
-					instructions.AddRange(valRegs.Select(r => new IrInstr(
-							IrInstr.IrKind.StoreTupleSection,
-							register,
-							r.Item1,
-							r.Item2
-						)));
 				} break;
 			case BoolLiteralNode boolean: {
 					instructions.Add(new(

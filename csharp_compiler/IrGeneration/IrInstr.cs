@@ -23,7 +23,7 @@ public readonly struct IrInstr {
 
 	public enum IrKind {
 		StoreParam,
-		StoreTupleSection,
+		AppendTupleSection,
 
 		Copy,
 		LoadArgument,
