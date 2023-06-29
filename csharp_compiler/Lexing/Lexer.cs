@@ -11,6 +11,7 @@ public class Lexer {
 		{"if",       KeywordKind.If},
 		{"elif",     KeywordKind.ElIf},
 		{"else",     KeywordKind.Else},
+		{"while",    KeywordKind.While},
 		{"let",      KeywordKind.Let},
 		{"mut",      KeywordKind.Mutable},
 		{"typedef",  KeywordKind.TypeDef},
@@ -176,6 +177,7 @@ public enum KeywordKind {
 	If,
 	ElIf,
 	Else,
+	While,
 
 	Platform,
 	Unsafe,
