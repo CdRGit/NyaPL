@@ -1,0 +1,6 @@
+digraph {
+node [shape="box"]
+entry [label="main", shape="Mdiamond"]
+entry -> n0
+n0 [label="r00:04 <- 0\n'a' <- r00:04\nr01:04 <- 5\n'b' <- r01:04\nr02:08 <- write_num\nr03:04 <- 'a'\nr04:04 <- 'b'\nr05:04 <- r03:04 * r04:04\np00:04 <- r05:04\nr06:00 <- r02:08(1)\n'v' <- r06:00\nr07:04 <- 'a'\nreturn r07:04\n"]
+}

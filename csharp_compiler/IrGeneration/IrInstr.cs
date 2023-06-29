@@ -26,6 +26,9 @@ public readonly struct IrInstr {
 		LoadFunction,
 		LoadIntrinsic,
 
+		LoadLocal,
+		StoreLocal,
+
 		IntLiteral,
 		BoolLiteral,
 
@@ -53,6 +56,13 @@ public readonly struct IrInstr {
 }
 
 public abstract class IrParam {
+	public class Local : IrParam {
+		public string Name { get; }
+		public Local(string name) {
+			Name = name;
+		}
+		public override string ToString() => $"Local({Name})";
+	}
 	public class Register : IrParam {
 		public ushort Size { get; }
 		public uint Index { get; }

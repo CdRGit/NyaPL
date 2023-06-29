@@ -6,12 +6,12 @@ namespace Nyapl.IrGeneration;
 
 public class IrResult {
 	public Localizer.Platform Platform { get; }
-	public ReadOnlyCollection<IrInstr> Instructions { get; }
-	public ReadOnlyDictionary<string, int> Functions { get; }
+	public ReadOnlyCollection<IrBlock> Blocks { get; }
+	public ReadOnlyDictionary<string, IrBlock> Functions { get; }
 
-	public IrResult(Localizer.Platform platform, ReadOnlyCollection<IrInstr> instructions, ReadOnlyDictionary<string, int> functions) {
+	public IrResult(Localizer.Platform platform, ReadOnlyCollection<IrBlock> blocks, ReadOnlyDictionary<string, IrBlock> functions) {
 		Platform = platform;
-		Instructions = instructions;
+		Blocks = blocks;
 		Functions = functions;
 	}
 }

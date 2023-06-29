@@ -12,23 +12,21 @@ using Nyapl.Typing;
 namespace Nyapl.IrGeneration;
 
 public class IrGenerator {
-	private List<IrInstr> Generate(Context ctx, ExpressionNode expression) {
-		List<IrInstr> instructions = new();
-
+	private IrBlock Generate(IrBlock block, Context ctx, ExpressionNode expression) {
 		switch (expression) {
 			case TupleNode tuple: {
 					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
 					ushort size = 0;
 					IrParam.Register? prevreg = null;
 					for (var i = 0; i < valRegs.Length; i++) {
-						instructions.AddRange(Generate(ctx, tuple.Values.Children[i]));
+						block = Generate(block, ctx, tuple.Values.Children[i]);
 						var reg = ctx.GetPreviousRegister();
 						size += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
 						if (i == 0) {
 							prevreg = reg;
 						} else {
 							var register = ctx.GetNewRegister(size);
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.AppendTupleSection,
 								ctx.GetNewRegister(size),
 								prevreg!,
@@ -36,78 +34,85 @@ public class IrGenerator {
 							));
 						}
 					}
-				} break;
+					return block;
+				}
 			case BoolLiteralNode boolean: {
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.BoolLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
 						new IrParam.Bool(boolean.Value)
 					));
-				} break;
+					return block;
+				}
 			case IntLiteralNode integer: {
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.IntLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
 						new IrParam.Int(integer.Value)
 					));
-				} break;
+					return block;
+				}
 			case IntrinsicNode intrinsic: {
 						var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), intrinsic.Name);
-						instructions.Add(new(
+						block.AddInstr(new(
 							IrInstr.IrKind.LoadIntrinsic,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
 							new IrParam.Intrinsic((ulong)index)
 						));
-					} break;
+						return block;
+					}
 			case VarLookupNode lookup: {
-					var register = ctx.GetVariable(lookup.Name);
-					if (register == null) {
+					var function = ctx.GetFunction(lookup.Name);
+					const ulong notFound = 0xFFFF_FFFF_FFFF_FFFF;
+					if (function != notFound) {
 						// we are looking up a function
-						instructions.Add(new(
+						block.AddInstr(new(
 							IrInstr.IrKind.LoadFunction,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
 							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
 						));
 					} else {
 						// variable found
-						instructions.Add(new(
-							IrInstr.IrKind.Copy,
+						block.AddInstr(new(
+							IrInstr.IrKind.LoadLocal,
 							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							register
+							new IrParam.Local(lookup.Name)
 						));
 					}
-				} break;
+					return block;
+				}
 			case CallNode call: {
-					instructions.AddRange(Generate(ctx, call.BaseExpr));
+					block = Generate(block, ctx, call.BaseExpr);
 					var baseReg = ctx.GetPreviousRegister();
 					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
-						instructions.AddRange(Generate(ctx, call.Arguments.Children[i]));
+						block = Generate(block, ctx, call.Arguments.Children[i]);
 						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
 					}
 					for (uint i = 0; i < argRegs.Length; i++) {
-						instructions.Add(new(
+						block.AddInstr(new(
 							IrInstr.IrKind.StoreParam,
 							new IrParam.Parameter(argRegs[i].Item2, i),
 							argRegs[i].Item1
 						));
 					}
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.Call,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
 						baseReg,
 						new IrParam.Count((ulong)call.Arguments.Children.Count)
 					));
-				} break;
+					return block;
+				}
 			case BinOpNode bin: {
 					var size = ctx.TypeCtx.GetSize(bin.Type!);
-					instructions.AddRange(Generate(ctx, bin.LExpr));
+					block = Generate(block, ctx, bin.LExpr);
 					var leftReg = ctx.GetPreviousRegister();
-					instructions.AddRange(Generate(ctx, bin.RExpr));
+					block = Generate(block, ctx, bin.RExpr);
 					var rightReg = ctx.GetPreviousRegister();
 					switch (bin.OP) {
 						case BinOpKind.Multiply:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Multiply,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -115,7 +120,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Divide:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Divide,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -123,7 +128,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Modulo:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Modulo,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -131,7 +136,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Add:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Add,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -139,7 +144,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Subtract:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Subtract,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -147,7 +152,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Equal:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Equal,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -155,7 +160,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.NotEq:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.NotEq,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -165,28 +170,29 @@ public class IrGenerator {
 						default:
 							throw new Exception($"Generating `BinOpKind.{bin.OP}` not implemented yet");
 					}
-				} break;
+					return block;
+				}
 			case UnOpNode un: {
 					var size = ctx.TypeCtx.GetSize(un.Type!);
-					instructions.AddRange(Generate(ctx, un.Expr));
+					block = Generate(block, ctx, un.Expr);
 					var reg = ctx.GetPreviousRegister();
 					switch (un.OP) {
 						case UnOpKind.Not:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Not,
 								ctx.GetNewRegister(size),
 								reg
 							));
 							break;
 						case UnOpKind.Negative:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Negative,
 								ctx.GetNewRegister(size),
 								reg
 							));
 							break;
 						case UnOpKind.Positive:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Positive,
 								ctx.GetNewRegister(size),
 								reg
@@ -195,44 +201,48 @@ public class IrGenerator {
 						default:
 							throw new Exception($"Generating `UnOpKind.{un.OP}` not implemented yet");
 					}
-				} break;
+					return block;
+				}
 			default:
 				throw new Exception($"Generate(ctx, {expression.GetType().Name}) not implemented yet");
 		}
-
-		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, LValueNode lVal, IrParam.Register sourceRegister) {
-		List<IrInstr> instructions = new();
-
+	private IrBlock Generate(IrBlock block, Context ctx, LValueNode lVal, IrParam.Register sourceRegister) {
 		switch (lVal) {
 			case NamedLValueNode named: {
-					ctx.SetVariable(named.Name, sourceRegister);
-				} break;
+					block.AddInstr(new(
+						IrInstr.IrKind.StoreLocal,
+						new IrParam.Local(named.Name),
+						sourceRegister
+					));
+					return block;
+				}
 			default:
 				throw new Exception($"Generate(ctx, {lVal.GetType().Name}, sourceRegister) not implemented yet");
 		}
-
-		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, StatementNode statement) {
-		List<IrInstr> instructions = new();
-
+	private IrBlock Generate(IrBlock block, Context ctx, StatementNode statement) {
 		switch (statement) {
-			case NoopStatementNode: break; // NOP
+			case NoopStatementNode: return block; // NOP
 			case DeclareVarNode v: {
-				instructions.AddRange(Generate(ctx, v.Expression));
-				ctx.SetVariable(v.Name, ctx.GetPreviousRegister());
-			} break;
+				block = Generate(block, ctx, v.Expression);
+				block.AddInstr(new(
+					IrInstr.IrKind.StoreLocal,
+					new IrParam.Local(v.Name),
+					ctx.GetPreviousRegister()
+				));
+				return block;
+			}
 			case ReassignNode reassign: {
-				instructions.AddRange(Generate(ctx, reassign.Expr));
+				block = Generate(block, ctx, reassign.Expr);
 				var sourceRegister = ctx.GetPreviousRegister();
-				instructions.AddRange(Generate(ctx, reassign.LVal, sourceRegister));
-			} break;
+				block = Generate(block, ctx, reassign.LVal, sourceRegister);
+				return block;
+			}
 			case DestructureNode d: {
-				instructions.AddRange(Generate(ctx, d.Expression));
+				block = Generate(block, ctx, d.Expression);
 				var tupReg = ctx.GetPreviousRegister();
 				ulong rollingOffset = 0;
 				for (int i = 0; i < d.Names.Children.Count; i++) {
@@ -240,13 +250,17 @@ public class IrGenerator {
 					switch (name) {
 						case NamedDestructureNode named: {
 								var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
-								instructions.Add(new(
+								block.AddInstr(new(
 									IrInstr.IrKind.LoadTupleSection,
 									reg,
 									tupReg,
 									new IrParam.Offset(rollingOffset)
 								));
-								ctx.SetVariable(named.Name, reg);
+								block.AddInstr(new(
+									IrInstr.IrKind.StoreLocal,
+									new IrParam.Local(named.Name),
+									reg
+								));
 							} break;
 						case HoleDestructureNode: break;
 						default:
@@ -254,21 +268,26 @@ public class IrGenerator {
 					}
 					rollingOffset += ctx.TypeCtx.GetSize(name.Type!);
 				}
-			} break;
+				return block;
+			}
 			case ReturnStatementNode r: {
-				instructions.AddRange(Generate(ctx, r.Expression));
-				instructions.Add(new(
+				block = Generate(block, ctx, r.Expression);
+				block.AddInstr(new(
 					IrInstr.IrKind.Return,
 					ctx.GetPreviousRegister()
 				));
-			} break;
+				return block;
+			}
 			case UnsafeStatementNode u: {
 				// safety should have been checked by the typechecker, so we just ignore it and append all the instructions in this unsafe block
 				foreach (var s in u.Body) {
-					instructions.AddRange(Generate(ctx, s));
+					block = Generate(block, ctx, s);
 				}
-			} break;
+				return block;
+			}
 			case IfStatementNode i: {
+				throw new Exception("stubbed out for my sanity, don't use if rn");
+				/* uhhhhh yea not yet lmfao
 				var preVars = ctx.GetVariables();
 				Dictionary<IrParam.Label, Dictionary<string, IrParam.Register>> deltaVars = new();
 				Dictionary<string, IrParam.Register> bodyDeltas = new();
@@ -415,53 +434,47 @@ public class IrGenerator {
 						list
 					));
 					ctx.SetVariable(v, destReg);
-				}
-			} break;
+				}*/
+			}
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
 		}
-
-		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, FunctionNode function) {
-		List<IrInstr> instructions = new();
-		instructions.Add(new(
-			IrInstr.IrKind.Label,
-			new IrParam.Label(function.Name)
-		));
-
-		// add arguments to registers
+	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
+		// move arguments to registers
 		uint i = 0;
 		foreach (var param in function.Parameters) {
-			instructions.Add(new(
+			block.AddInstr(new(
 				IrInstr.IrKind.LoadArgument,
 				ctx.GetNewRegister(ctx.TypeCtx.GetSize(param.Type.Type!)),
 				new IrParam.Argument(ctx.TypeCtx.GetSize(param.Type.Type!), i++)
 			));
-			ctx.SetVariable(param.Name, ctx.GetPreviousRegister());
+			block.AddInstr(new(
+				IrInstr.IrKind.StoreLocal,
+				new IrParam.Local(param.Name),
+				ctx.GetPreviousRegister()
+			));
 		}
 
 		foreach (var statement in function.Body) {
-			instructions.AddRange(Generate(ctx, statement));
+			block = Generate(block, ctx, statement);
 		}
 
-		return instructions;
+		return block;
 	}
 
-	public IrList Generate(TypedFileNode file) {
-		List<IrInstr> instructions = new();
-
-		Dictionary<string, int> functions = new();
+	public IrResult Generate(TypedFileNode file) {
+		Dictionary<string, IrBlock> functions = new();
 		Context ctx = new(file.Platform, file.Functions.Select(f => f.Name).ToArray(), file.Context);
 
 		foreach(var function in file.Functions) {
-			int fnIdx = instructions.Count;
-			instructions.AddRange(Generate(ctx, function));
-			functions[function.Name] = fnIdx;
+			IrBlock block = ctx.NewBlock();
+			Generate(block, ctx, function);
+			functions[function.Name] = block;
 		}
 
-		return new(file.Platform, instructions.AsReadOnly(), functions.AsReadOnly());
+		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly());
 	}
 
 	private class Context {
@@ -469,6 +482,18 @@ public class IrGenerator {
 			Platform = platform;
 			Functions = functions;
 			TypeCtx = typeCtx;
+		}
+
+		private List<IrBlock> blocks = new();
+
+		public IrBlock NewBlock() {
+			IrBlock block = new(blocks.Count);
+			blocks.Add(block);
+			return block;
+		}
+
+		public ReadOnlyCollection<IrBlock> GetBlocks() {
+			return blocks.AsReadOnly();
 		}
 
 		public Localizer.Platform Platform { get; }
@@ -483,14 +508,6 @@ public class IrGenerator {
 
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
-
-		private Dictionary<string, IrParam.Register> variables = new();
-
-		public void SetVariable(string name, IrParam.Register register) => variables[name] = register;
-		public IrParam.Register? GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : null;
-
-		public ReadOnlyDictionary<string, IrParam.Register> GetVariables() => variables.ToDictionary(p => p.Key, p => p.Value).AsReadOnly();
-		public void SetVariables(ReadOnlyDictionary<string, IrParam.Register> newVars) => variables = newVars.ToDictionary(p => p.Key, p => p.Value);
 
 		private Dictionary<string, int> labels = new();
 
