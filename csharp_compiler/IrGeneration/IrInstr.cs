@@ -26,13 +26,14 @@ public readonly struct IrInstr {
 		LoadFunction,
 		LoadIntrinsic,
 
+		LoadLocal,
+		StoreLocal,
+
 		IntLiteral,
 		BoolLiteral,
 
-		JumpIfFalse,
-		JumpAlways,
-
-		Label,
+		BranchBool,
+		BranchAlways,
 
 		Call,
 		Return,
@@ -53,6 +54,13 @@ public readonly struct IrInstr {
 }
 
 public abstract class IrParam {
+	public class Local : IrParam {
+		public string Name { get; }
+		public Local(string name) {
+			Name = name;
+		}
+		public override string ToString() => $"Local({Name})";
+	}
 	public class Register : IrParam {
 		public ushort Size { get; }
 		public uint Index { get; }
@@ -122,11 +130,11 @@ public abstract class IrParam {
 		}
 		public override string ToString() => $"Function({Index})";
 	}
-	public class Label : IrParam {
-		public string Name { get; }
-		public Label(string name) {
-			Name = name;
+	public class Block : IrParam {
+		public IrBlock Blk { get; }
+		public Block(IrBlock blk) {
+			Blk = blk;
 		}
-		public override string ToString() => $"Label({Name})";
+		public override string ToString() => $"Block({Blk})";
 	}
 }

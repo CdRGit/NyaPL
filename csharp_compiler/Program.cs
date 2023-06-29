@@ -24,6 +24,7 @@ class Program {
 		string file = "";
 		string? outFile = null;
 		bool simulate = false;
+		bool drawGraphs = false;
 
 		foreach (var arg in args) {
 			if (arg.StartsWith('-')) {
@@ -38,7 +39,12 @@ class Program {
 						}
 						simulate = true;
 						continue;
-
+					case "-d":
+						if (drawGraphs) {
+							throw new ArgumentException("Akready drawing flow graphs, yet another attempt was included");
+						}
+						drawGraphs = true;
+						continue;
 					default:
 						throw new ArgumentException($"Unknown flag: {arg}");
 				}
@@ -56,6 +62,6 @@ class Program {
 					break;
 			}
 		}
-		return new Arguments(file, outFile ?? Path.ChangeExtension(file, "out"), simulate);
+		return new Arguments(file, outFile ?? Path.ChangeExtension(file, "out"), simulate, drawGraphs);
 	}
 }

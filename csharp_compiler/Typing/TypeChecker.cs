@@ -241,7 +241,7 @@ public class TypeChecker {
 			case ReassignNode reassign: {
 				var lVal = Check(ctx, reassign.LVal);
 				var expr = Check(ctx, reassign.Expr);
-				
+
 				ctx.Unify(reassign.Location, lVal.Type, expr.Type);
 
 				return new ReassignNode(reassign.Location, lVal, expr);

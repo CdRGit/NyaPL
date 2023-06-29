@@ -1,5 +1,7 @@
 using System;
+using System.Text;
 using System.Linq;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -36,7 +38,7 @@ public class Compiler {
 	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
 	private Dictionary<string, TypedFileNode>      typedFiles     = new();
 	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
-	private Dictionary<string, IrList>             generatedFiles = new();
+	private Dictionary<string, IrResult>           generatedFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -54,176 +56,142 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
-	private void PrettyPrint(IrInstr instr, string[] functions, string[] intrinsics) {
-		void FG(ConsoleColor col) => Console.ForegroundColor = col;
-
-		switch (instr.Kind) {
-			case IrInstr.IrKind.JumpAlways: {
-					var label = (instr[0] as IrParam.Label)!.Name;
-					FG(ConsoleColor.Cyan);
-					Console.WriteLine($"    jump_always {label}");
-				}
+	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
+		switch (param) {
+			case IrParam.Local l:
+				builder.Append($"local[{l.Name}]");
 				break;
-			case IrInstr.IrKind.JumpIfFalse: {
-					var r = (instr[1] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					var label = (instr[0] as IrParam.Label)!.Name;
-					FG(ConsoleColor.Cyan);
-					Console.WriteLine($"    jump_if_false(r{idx}:{size}) {label}");
-				}
+			case IrParam.Int i:
+				builder.Append($"{i.Value}");
 				break;
-			case IrInstr.IrKind.LoadFunction: {
-					var r = (instr[0] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					var func = (instr[1] as IrParam.Function)!.Index;
-					FG(ConsoleColor.Magenta);
-					Console.WriteLine($"    r{idx}:{size} = &{functions[func]}");
-				}
+			case IrParam.Bool b:
+				builder.Append($"{b.Value}");
 				break;
-			case IrInstr.IrKind.LoadIntrinsic: {
-					var r = (instr[0] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					var i = (instr[1] as IrParam.Intrinsic)!.Index;
-					FG(ConsoleColor.Magenta);
-					Console.WriteLine($"    r{idx}:{size} = &intrinsic:{intrinsics[i]}");
-				}
+			case IrParam.Register r:
+				builder.Append($"r{r.Index:D2}:{r.Size:D2}");
 				break;
-			case IrInstr.IrKind.Copy: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rS = (instr[1] as IrParam.Register)!;
-					var idxS = rS.Index;
-					var sizeS = rS.Size;
-					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxS}:{sizeS}");
-				}
+			case IrParam.Function f:
+				builder.Append($"{functions[f.Index]}");
 				break;
-			case IrInstr.IrKind.StoreParam: {
-					var pD = (instr[0] as IrParam.Parameter)!;
-					var idxD = pD.Index;
-					var sizeD = pD.Size;
-					var rS = (instr[1] as IrParam.Register)!;
-					var idxS = rS.Index;
-					var sizeS = rS.Size;
-					FG(ConsoleColor.Yellow);
-					Console.WriteLine($"    p{idxD}:{sizeD} = r{idxS}:{sizeS}");
-				}
+			case IrParam.Intrinsic i:
+				builder.Append($"intrinsic:{intrinsics[i.Index]}");
 				break;
-			case IrInstr.IrKind.LoadArgument: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rS = (instr[1] as IrParam.Argument)!;
-					var idxS = rS.Index;
-					var sizeS = rS.Size;
-					FG(ConsoleColor.Magenta);
-					Console.WriteLine($"    r{idxD}:{sizeD} = a{idxS}:{sizeS}");
-				}
+			case IrParam.Parameter p:
+				builder.Append($"p{p.Index:D2}:{p.Size:D2}");
 				break;
-			case IrInstr.IrKind.Call: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rF = (instr[1] as IrParam.Register)!;
-					var idxF = rF.Index;
-					var sizeF = rF.Size;
-					var count = (instr[2] as IrParam.Count)!.Value;
-					FG(ConsoleColor.Green);
-					Console.WriteLine($"    r{idxD}:{sizeD} = call r{idxF}:{sizeF}({count})");
-				}
+			case IrParam.Argument a:
+				builder.Append($"a{a.Index:D2}:{a.Size:D2}");
 				break;
-			case IrInstr.IrKind.Return: {
-					var r = (instr[0] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					FG(ConsoleColor.Red);
-					Console.WriteLine($"    return r{idx}:{size}");
-				}
-				break;
-			case IrInstr.IrKind.IntLiteral: {
-					var r = (instr[0] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					var value = (instr[1] as IrParam.Int)!.Value;
-					FG(ConsoleColor.Magenta);
-					Console.WriteLine($"    r{idx}:{size} = {value}");
-				}
-				break;
-			case IrInstr.IrKind.BoolLiteral: {
-					var r = (instr[0] as IrParam.Register)!;
-					var idx = r.Index;
-					var size = r.Size;
-					var value = (instr[1] as IrParam.Bool)!.Value;
-					FG(ConsoleColor.Magenta);
-					Console.WriteLine($"    r{idx}:{size} = {value.ToString().ToLower()}");
-				}
-				break;
-			case IrInstr.IrKind.Add: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rL = (instr[1] as IrParam.Register)!;
-					var idxL = rL.Index;
-					var sizeL = rL.Size;
-					var rR = (instr[2] as IrParam.Register)!;
-					var idxR = rR.Index;
-					var sizeR = rR.Size;
-					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} + r{idxR}:{sizeR}");
-				}
-				break;
-			case IrInstr.IrKind.Multiply: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rL = (instr[1] as IrParam.Register)!;
-					var idxL = rL.Index;
-					var sizeL = rL.Size;
-					var rR = (instr[2] as IrParam.Register)!;
-					var idxR = rR.Index;
-					var sizeR = rR.Size;
-					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} * r{idxR}:{sizeR}");
-				}
-				break;
-			case IrInstr.IrKind.Divide: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var rL = (instr[1] as IrParam.Register)!;
-					var idxL = rL.Index;
-					var sizeL = rL.Size;
-					var rR = (instr[2] as IrParam.Register)!;
-					var idxR = rR.Index;
-					var sizeR = rR.Size;
-					Console.WriteLine($"    r{idxD}:{sizeD} = r{idxL}:{sizeL} / r{idxR}:{sizeR}");
-				}
-				break;
-			case IrInstr.IrKind.Label:
-				FG(ConsoleColor.Blue);
-				Console.WriteLine($"{(instr[0] as IrParam.Label)!.Name}:");
-				break;
-			case IrInstr.IrKind.Phi: {
-					var rD = (instr[0] as IrParam.Register)!;
-					var idxD = rD.Index;
-					var sizeD = rD.Size;
-					var ps = instr.Params.Skip(1).ToArray();
-					var values = new List<string>();
-					for (int i = 0; i < ps.Length; i+=2) {
-						var rS = (ps[i + 1] as IrParam.Register)!;
-						var idxS = rS.Index;
-						var sizeS = rS.Size;
-						values.Add($"{(ps[i + 0] as IrParam.Label)!.Name}: r{idxS}:{sizeS}");
-					}
-					FG(ConsoleColor.Blue);
-					Console.WriteLine($"    r{idxD}:{sizeD} = PHI [{string.Join(", ", values)}]");
-				}
+			case IrParam.Count c:
+				builder.Append($"{c.Value}");
 				break;
 			default:
-				throw new Exception($"PrettyPrint({instr.Kind}) not implemented yet '{instr}'");
+				throw new Exception($"PrettyPrint not implemented yet for IrParam of type {param.GetType().Name}");
 		}
-		Console.ResetColor();
+	}
+
+	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
+		Dictionary<IrInstr.IrKind, string> operators = new() {
+			{IrInstr.IrKind.Add,      "+"},
+			{IrInstr.IrKind.Multiply, "*"},
+			{IrInstr.IrKind.NotEq,    "!="},
+		};
+		switch (instr.Kind) {
+			case IrInstr.IrKind.BranchAlways:
+				builder.Append("br\n");
+				break;
+			case IrInstr.IrKind.BranchBool:
+				builder.Append("br ");
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append("?\n");
+				break;
+			case IrInstr.IrKind.IntLiteral:
+			case IrInstr.IrKind.BoolLiteral:
+			case IrInstr.IrKind.LoadFunction:
+			case IrInstr.IrKind.LoadIntrinsic:
+			case IrInstr.IrKind.Copy:
+			case IrInstr.IrKind.StoreParam:
+			case IrInstr.IrKind.LoadArgument:
+			case IrInstr.IrKind.StoreLocal:
+			case IrInstr.IrKind.LoadLocal:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			case IrInstr.IrKind.Call:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("(");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append(")\n");
+				break;
+			case IrInstr.IrKind.Return:
+				builder.Append("return ");
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			case IrInstr.IrKind.Add:
+			case IrInstr.IrKind.Multiply:
+			case IrInstr.IrKind.NotEq:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append($" {operators[instr.Kind]} ");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			default:
+				throw new Exception($"PrettyPrint not implemented yet for IrInstr of kind {instr.Kind}");
+		}
+	}
+
+	private void DrawGraph(StreamWriter writer, IrBlock node, string[] functions, string[] intrinsics, HashSet<IrBlock> explored) {
+		if (explored.Contains(node)) return; // early return
+
+		explored.Add(node);
+		StringBuilder labelText = new();
+
+		foreach (var instr in node.Instructions) {
+			PrettyPrint(labelText, instr, functions, intrinsics);
+		}
+
+		labelText.Replace("\n", "\\n");
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+		if (node.HasReturn) {
+			writer.WriteLine($"n{node.ID} -> return");
+		}
+
+		foreach (var target in node.Outgoing) {
+			DrawGraph(writer, target.node, functions, intrinsics, explored);
+			writer.WriteLine(@$"n{node.ID} -> n{target.node.ID} [label=""{target.label}""]");
+		}
+	}
+
+	private void DrawGraph(string funcName, IrBlock body, string[] functions, string[] intrinsics) {
+		string path = $"debug/flowgraph/{funcName}";
+		using (StreamWriter writer = new($"{path}.dot")) {
+			var explored = new HashSet<IrBlock>();
+			writer.WriteLine("digraph {");
+
+			writer.WriteLine(@"node [shape=""box""]");
+
+			writer.WriteLine(@$"entry [label=""{funcName}"", shape=""Mdiamond""]");
+			writer.WriteLine(@$"return [label=""return"", shape=""octagon""]");
+
+			writer.WriteLine($"entry -> n{body.ID}");
+
+			DrawGraph(writer, body, functions, intrinsics, explored);
+
+			writer.WriteLine("}");
+		}
+		// use `$ dot` to draw it
+		if (Args.DrawGraphs) {
+			Process.Start("dot", new[] {"-Tsvg", $"{path}.dot", $"-o{path}.svg"});
+			Process.Start("dot", new[] {"-Tpng", $"{path}.dot", $"-o{path}.png"});
+			//throw new Exception("Actually draw graphs out");
+		}
 	}
 
 	private void PrettyPrint(string file) {
@@ -233,14 +201,12 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrList instructions = GetIR(file);
+		IrResult instructions = GetIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
-		foreach (var instr in instructions.Instructions) {
-			// loop over and pretty print
-			PrettyPrint(instr, functions, intrinsics);
+		foreach (var func in instructions.Functions.Keys) {
+			DrawGraph(func, instructions.Functions[func], functions, intrinsics);
 		}
-		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
 
 	private void ReportError(CompileError error, int contextSize) {
@@ -318,6 +284,6 @@ public class Compiler {
 	public TypedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
 
-	public IrList GetIR(string file) =>
+	public IrResult GetIR(string file) =>
 		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
 }
