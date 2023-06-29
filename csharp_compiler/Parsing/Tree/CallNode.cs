@@ -23,5 +23,5 @@ public class CallNode : ExpressionNode {
 		return children.AsReadOnly();
 	}
 
-	public override string ToString() => $"Call {(Type == null ? "" : $" :{Type}")}";
+	public override string ToString() => $"Call{(Type == null ? "" : $" :{Type}")}";
 }
