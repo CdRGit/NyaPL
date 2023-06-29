@@ -12,5 +12,15 @@ fn [stdio] main(): i32 {
 	let mut a = 0;
 	let mut b = 5;
 	let v = write_num(a * b);
+	if (a != 6) {
+		a = a + b * 2;
+	} elif (false) {
+		a = 4;
+	} elif (true) {
+		a = 3;
+		return b;
+	} else {
+		b = 420;
+	}
 	return a;
 }

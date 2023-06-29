@@ -286,159 +286,76 @@ public class IrGenerator {
 				return block;
 			}
 			case IfStatementNode i: {
-				throw new Exception("stubbed out for my sanity, don't use if rn");
-				/* uhhhhh yea not yet lmfao
-				var preVars = ctx.GetVariables();
-				Dictionary<IrParam.Label, Dictionary<string, IrParam.Register>> deltaVars = new();
-				Dictionary<string, IrParam.Register> bodyDeltas = new();
-				var condLabel = ctx.GetNewLabel("if_cond");
-				var bodyLabel = ctx.GetNewLabel("if_body");
-				var elseLabel = ctx.GetNewLabel("else");
-				// IF
-				ctx.SetVariables(preVars);
-				instructions.Add(new(
-					IrInstr.IrKind.Label,
-					condLabel
-				));
-				instructions.AddRange(Generate(ctx, i.IfExpr));
-				var exprReg = ctx.GetPreviousRegister();
-				var endLabel = ctx.GetNewLabel("if_end");
-				var nextLabel = ctx.GetNewLabel("if_next");
-				instructions.Add(new(
-					IrInstr.IrKind.JumpIfFalse,
-					nextLabel,
-					exprReg
-				));
-				instructions.Add(new(
-					IrInstr.IrKind.Label,
-					bodyLabel
-				));
-				foreach (var s in i.IfBody) {
-					instructions.AddRange(Generate(ctx, s));
-				}
-				bodyDeltas = new();
-				foreach (var v in ctx.GetVariables()) {
-					if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
-						bodyDeltas.Add(v.Key, v.Value);
-				}
-				deltaVars[bodyLabel] = bodyDeltas;
-				instructions.Add(new(
-					IrInstr.IrKind.JumpAlways,
-					endLabel
-				));
-				instructions.Add(new(
-					IrInstr.IrKind.Label,
-					nextLabel
-				));
-				// ELIF
-				foreach (var e in i.Elifs) {
-					var cond = ctx.GetNewLabel("elif_cond");
-					var body = ctx.GetNewLabel("elif_body");
-					ctx.SetVariables(preVars);
-					instructions.Add(new(
-						IrInstr.IrKind.Label,
-						cond
-					));
-					instructions.AddRange(Generate(ctx, e.Expr));
-					exprReg = ctx.GetPreviousRegister();
-					nextLabel = ctx.GetNewLabel("elif_next");
-					instructions.Add(new(
-						IrInstr.IrKind.JumpIfFalse,
-						nextLabel,
-						exprReg
-					));
-					instructions.Add(new(
-						IrInstr.IrKind.Label,
-						body
-					));
-					foreach (var s in e.Body) {
-						instructions.AddRange(Generate(ctx, s));
-					}
-					bodyDeltas = new();
-					foreach (var v in ctx.GetVariables()) {
-						if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
-							bodyDeltas.Add(v.Key, v.Value);
-					}
-					deltaVars[body] = bodyDeltas;
-					instructions.Add(new(
-						IrInstr.IrKind.JumpAlways,
-						endLabel
-					));
-					instructions.Add(new(
-						IrInstr.IrKind.Label,
-						nextLabel
-					));
-				}
-
-				// ELSE
-				if (i.Else != null) {
-					ctx.SetVariables(preVars);
-					instructions.Add(new(
-						IrInstr.IrKind.Label,
-						elseLabel
-					));
-					foreach (var s in i.Else.Body) {
-						instructions.AddRange(Generate(ctx, s));
-					}
-					bodyDeltas = new();
-					foreach (var v in ctx.GetVariables()) {
-						if (preVars.ContainsKey(v.Key) && preVars[v.Key] != v.Value)
-							bodyDeltas.Add(v.Key, v.Value);
-					}
-					deltaVars[elseLabel] = bodyDeltas;
-					instructions.Add(new(
-						IrInstr.IrKind.JumpAlways,
-						endLabel
-					));
-				}
-
-				instructions.Add(new(
-					IrInstr.IrKind.Label,
-					endLabel
-				));
-
-				List<string> changedVars = new();
-				foreach (var v in preVars) {
-					Console.WriteLine(v);
-				}
-				foreach (var delta in deltaVars) {
-					Console.WriteLine("-");
-					foreach (var v in delta.Value) {
-						Console.WriteLine(v);
-						changedVars.Add(v.Key);
-					}
-				}
-				changedVars = changedVars.Distinct().ToList();
-				Console.WriteLine("changed vars:");
-				foreach (var v in changedVars) {
-					Console.Write(v);
-					// need to add phi nodes for all these variables
-					Console.WriteLine(":");
-					Dictionary<IrParam.Label, IrParam.Register> registers = new();
-					foreach (var label in deltaVars.Keys) {
-						var vals = deltaVars[label];
-						if (vals.ContainsKey(v)) {
-							Console.WriteLine($"CHANGED in {label.Name}");
-							registers[label] = vals[v];
-						}
-						else {
-							// keep the same
-							Console.WriteLine($"UNCHANGED in {label.Name}");
-							registers[label] = preVars[v];
-						}
-					}
-					var destReg = ctx.GetNewRegister(preVars[v].Size);
-					var list = new IrParam[] {destReg}.Concat(registers.SelectMany(p => new[] {(IrParam)p.Key, (IrParam)p.Value})).ToArray();
-					instructions.Add(new(
-						IrInstr.IrKind.Phi,
-						list
-					));
-					ctx.SetVariable(v, destReg);
-				}*/
+				return Generate(block, ctx, i);
 			}
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
 		}
+	}
+
+	private IrBlock Generate(IrBlock block, Context ctx, IfStatementNode @if) {
+		var end = ctx.NewBlock();
+		var next = @if.Elifs.Count > 0 || @if.Else != null ? ctx.NewBlock() : end;
+		var body = ctx.NewBlock();
+		// IF
+		block = Generate(block, ctx, @if.IfExpr);
+		var exprReg = ctx.GetPreviousRegister();
+		block.AddInstr(new(
+			IrInstr.IrKind.BranchBool,
+			exprReg,
+			new IrParam.Block(next),
+			new IrParam.Block(body)
+		));
+		block.AddConnection(next, "false");
+		block.AddConnection(body, "true");
+		foreach (var s in @if.IfBody) {
+			body = Generate(body, ctx, s);
+		}
+		body.AddInstr(new(
+			IrInstr.IrKind.BranchAlways,
+			new IrParam.Block(end)
+		));
+		body.AddConnection(end);
+		// ELIF
+		for (int i = 0; i < @if.Elifs.Count; i++) {
+			var e = @if.Elifs[i];
+			block = next;
+			// elif expr is in block
+			block = Generate(block, ctx, e.Expr);
+			next = @if.Elifs.Count > i + 1 || @if.Else != null ? ctx.NewBlock() : end;
+			body = ctx.NewBlock();
+			exprReg = ctx.GetPreviousRegister();
+			block.AddInstr(new(
+				IrInstr.IrKind.BranchBool,
+				exprReg,
+				new IrParam.Block(next),
+				new IrParam.Block(body)
+			));
+			block.AddConnection(next, "false");
+			block.AddConnection(body, "true");
+			foreach (var s in e.Body) {
+				body = Generate(body, ctx, s);
+			}
+			body.AddInstr(new(
+				IrInstr.IrKind.BranchAlways,
+				new IrParam.Block(end)
+			));
+			body.AddConnection(end);
+		}
+
+		// ELSE
+		if (@if.Else != null) {
+			body = next;
+			foreach (var s in @if.Else.Body) {
+				body = Generate(body, ctx, s);
+			}
+			body.AddInstr(new(
+				IrInstr.IrKind.BranchAlways,
+				new IrParam.Block(end)
+			));
+			body.AddConnection(end);
+		}
+		return end;
 	}
 
 	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
@@ -508,9 +425,5 @@ public class IrGenerator {
 
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
-
-		private Dictionary<string, int> labels = new();
-
-		public IrParam.Label GetNewLabel(string name) => new IrParam.Label(labels.ContainsKey(name) ? $".{name}_{++labels[name]}" : $".{name}_{labels[name] = 0}");
 	}
 }

@@ -32,10 +32,8 @@ public readonly struct IrInstr {
 		IntLiteral,
 		BoolLiteral,
 
-		JumpIfFalse,
-		JumpAlways,
-
-		Label,
+		BranchBool,
+		BranchAlways,
 
 		Call,
 		Return,
@@ -132,11 +130,11 @@ public abstract class IrParam {
 		}
 		public override string ToString() => $"Function({Index})";
 	}
-	public class Label : IrParam {
-		public string Name { get; }
-		public Label(string name) {
-			Name = name;
+	public class Block : IrParam {
+		public IrBlock Blk { get; }
+		public Block(IrBlock blk) {
+			Blk = blk;
 		}
-		public override string ToString() => $"Label({Name})";
+		public override string ToString() => $"Block({Blk})";
 	}
 }

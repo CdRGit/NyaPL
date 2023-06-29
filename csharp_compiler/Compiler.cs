@@ -59,10 +59,13 @@ public class Compiler {
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
 			case IrParam.Local l:
-				builder.Append($"'{l.Name}'");
+				builder.Append($"local[{l.Name}]");
 				break;
 			case IrParam.Int i:
 				builder.Append($"{i.Value}");
+				break;
+			case IrParam.Bool b:
+				builder.Append($"{b.Value}");
 				break;
 			case IrParam.Register r:
 				builder.Append($"r{r.Index:D2}:{r.Size:D2}");
@@ -71,7 +74,7 @@ public class Compiler {
 				builder.Append($"{functions[f.Index]}");
 				break;
 			case IrParam.Intrinsic i:
-				builder.Append($"{intrinsics[i.Index]}");
+				builder.Append($"intrinsic:{intrinsics[i.Index]}");
 				break;
 			case IrParam.Parameter p:
 				builder.Append($"p{p.Index:D2}:{p.Size:D2}");
@@ -89,10 +92,21 @@ public class Compiler {
 
 	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
 		Dictionary<IrInstr.IrKind, string> operators = new() {
-			{IrInstr.IrKind.Multiply, "*"}
+			{IrInstr.IrKind.Add,      "+"},
+			{IrInstr.IrKind.Multiply, "*"},
+			{IrInstr.IrKind.NotEq,    "!="},
 		};
 		switch (instr.Kind) {
+			case IrInstr.IrKind.BranchAlways:
+				builder.Append("br\n");
+				break;
+			case IrInstr.IrKind.BranchBool:
+				builder.Append("br ");
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append("?\n");
+				break;
 			case IrInstr.IrKind.IntLiteral:
+			case IrInstr.IrKind.BoolLiteral:
 			case IrInstr.IrKind.LoadFunction:
 			case IrInstr.IrKind.LoadIntrinsic:
 			case IrInstr.IrKind.Copy:
@@ -118,7 +132,9 @@ public class Compiler {
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
+			case IrInstr.IrKind.Add:
 			case IrInstr.IrKind.Multiply:
+			case IrInstr.IrKind.NotEq:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -127,14 +143,13 @@ public class Compiler {
 				builder.Append("\n");
 				break;
 			default:
-				if (true)
-					throw new Exception($"PrettyPrint not implemented yet for IrInstr of kind {instr.Kind}");
-				else
-					break;
+				throw new Exception($"PrettyPrint not implemented yet for IrInstr of kind {instr.Kind}");
 		}
 	}
 
 	private void DrawGraph(StreamWriter writer, IrBlock node, string[] functions, string[] intrinsics, HashSet<IrBlock> explored) {
+		if (explored.Contains(node)) return; // early return
+
 		explored.Add(node);
 		StringBuilder labelText = new();
 
@@ -143,7 +158,15 @@ public class Compiler {
 		}
 
 		labelText.Replace("\n", "\\n");
-		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""]");
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+		if (node.HasReturn) {
+			writer.WriteLine($"n{node.ID} -> return");
+		}
+
+		foreach (var target in node.Outgoing) {
+			DrawGraph(writer, target.node, functions, intrinsics, explored);
+			writer.WriteLine(@$"n{node.ID} -> n{target.node.ID} [label=""{target.label}""]");
+		}
 	}
 
 	private void DrawGraph(string funcName, IrBlock body, string[] functions, string[] intrinsics) {
@@ -155,6 +178,7 @@ public class Compiler {
 			writer.WriteLine(@"node [shape=""box""]");
 
 			writer.WriteLine(@$"entry [label=""{funcName}"", shape=""Mdiamond""]");
+			writer.WriteLine(@$"return [label=""return"", shape=""octagon""]");
 
 			writer.WriteLine($"entry -> n{body.ID}");
 
@@ -165,6 +189,7 @@ public class Compiler {
 		// use `$ dot` to draw it
 		if (Args.DrawGraphs) {
 			Process.Start("dot", new[] {"-Tsvg", $"{path}.dot", $"-o{path}.svg"});
+			Process.Start("dot", new[] {"-Tpng", $"{path}.dot", $"-o{path}.png"});
 			//throw new Exception("Actually draw graphs out");
 		}
 	}
