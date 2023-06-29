@@ -246,6 +246,37 @@ public class IrGenerator {
 		}
 	}
 
+	private IrBlock Generate(IrBlock block, Context ctx, DestructureItemNode item, IrParam.Register tupReg, ulong offset) {
+		switch (item) {
+			case NamedDestructureNode named: {
+				var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
+				block.AddInstr(new(
+					IrInstr.IrKind.LoadTupleSection,
+					reg,
+					tupReg,
+					new IrParam.Offset(offset)
+				));
+				block.AddInstr(new(
+					IrInstr.IrKind.StoreLocal,
+					new IrParam.Local(named.Name),
+					reg
+				));
+				return block;
+			}
+		case HoleDestructureNode: return block;
+		case TupleDestructureNode tuple: {
+				ulong newOffset = offset;
+				foreach (var child in tuple.Children) {
+					block = Generate(block, ctx, child, tupReg, newOffset);
+					newOffset += ctx.TypeCtx.GetSize(child.Type!);
+				}
+				return block;
+			}
+		default:
+			throw new Exception($"Generating DestructureNode.{item.GetType().Name} not implemented yet");
+		}
+	}
+
 	private IrBlock Generate(IrBlock block, Context ctx, StatementNode statement) {
 		switch (statement) {
 			case NoopStatementNode: return block; // NOP
@@ -268,28 +299,10 @@ public class IrGenerator {
 				block = Generate(block, ctx, d.Expression);
 				var tupReg = ctx.GetPreviousRegister();
 				ulong rollingOffset = 0;
-				for (int i = 0; i < d.Names.Children.Count; i++) {
-					var name = d.Names.Children[i];
-					switch (name) {
-						case NamedDestructureNode named: {
-								var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
-								block.AddInstr(new(
-									IrInstr.IrKind.LoadTupleSection,
-									reg,
-									tupReg,
-									new IrParam.Offset(rollingOffset)
-								));
-								block.AddInstr(new(
-									IrInstr.IrKind.StoreLocal,
-									new IrParam.Local(named.Name),
-									reg
-								));
-							} break;
-						case HoleDestructureNode: break;
-						default:
-							throw new Exception($"Generating DestructureNode.{name.GetType().Name} not implemented yet");
-					}
-					rollingOffset += ctx.TypeCtx.GetSize(name.Type!);
+				for (int i = 0; i < d.Items.Children.Count; i++) {
+					var item = d.Items.Children[i];
+					block = Generate(block, ctx, item, tupReg, rollingOffset);
+					rollingOffset += ctx.TypeCtx.GetSize(item.Type!);
 				}
 				return block;
 			}

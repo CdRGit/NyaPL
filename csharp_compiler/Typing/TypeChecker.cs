@@ -45,6 +45,11 @@ public class TypeChecker {
 				var type = Check(ctx, named.TypeNode);
 				return new NamedDestructureNode(named.Location, named.Name, type, type.Type!);
 			}
+			case TupleDestructureNode tupl: {
+				var children = new AstListNode<DestructureItemNode>(tupl.Children.Location, tupl.Children.Select(d => Check(ctx, d)).ToList().AsReadOnly());
+				var t = new Apply(tuple, children.Select(c => c.Type!).ToList().AsReadOnly());
+				return new TupleDestructureNode(tupl.Location, children, t);
+			}
 			case HoleDestructureNode hole: {
 				return new HoleDestructureNode(hole.Location, ctx.NewMeta());
 			}
@@ -191,6 +196,22 @@ public class TypeChecker {
 		return new(whileStatement.Location, expr, body);
 	}
 
+	private void Declare(Context ctx, DestructureItemNode item, bool mutable) {
+		switch (item) {
+			case NamedDestructureNode n: {
+				if(!ctx.DeclareVar(n.Name, n.Type!, mutable)) throw new TypeError(n.Location, $"Variable {n.Name} already declared");
+			} break;
+			case TupleDestructureNode t: {
+				foreach (var child in t.Children) {
+					Declare(ctx, child, mutable);
+				}
+			} break;
+			case HoleDestructureNode:
+			break;
+			default: throw new Exception($"Unknown DestructureItemNode: {item.GetType().Name}");
+		}
+	}
+
 	private StatementNode Check(Context ctx, StatementNode statement) {
 		switch (statement) {
 			case ReturnStatementNode ret: {
@@ -211,23 +232,14 @@ public class TypeChecker {
 				return new DeclareVarNode(dec.Location, dec.Name, dec.Mutable, declaredType, expressionType);
 			}
 			case DestructureNode destruct: {
-				var names = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Names.Select(n => Check(ctx, n)).ToList().AsReadOnly());
+				var items = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Items.Select(n => Check(ctx, n)).ToList().AsReadOnly());
 				var expression = Check(ctx, destruct.Expression);
-				var expected = new Apply(tuple, names.Select(n => n.Type!).ToList().AsReadOnly());
+				var expected = new Apply(tuple, items.Select(n => n.Type!).ToList().AsReadOnly());
 				ctx.Unify(destruct.Location, expected, expression.Type!);
-				// declare the named parts later:tm:
-				// it is now later
-				foreach (var name in names) {
-					switch (name) {
-						case NamedDestructureNode n: {
-								if(!ctx.DeclareVar(n.Name, n.Type!, destruct.Mutable)) throw new TypeError(n.Location, $"Variable {n.Name} already declared");
-							} break;
-						case HoleDestructureNode:
-							break;
-						default: throw new Exception($"Unknown DestructureItemNode: {name.GetType().Name}");
-					}
+				foreach (var item in items) {
+					Declare(ctx, item, destruct.Mutable);
 				}
-				return new DestructureNode(destruct.Location, names, destruct.Mutable, expression);
+				return new DestructureNode(destruct.Location, items, destruct.Mutable, expression);
 			}
 			case WhileStatementNode @while: {
 				return Check(ctx, @while);

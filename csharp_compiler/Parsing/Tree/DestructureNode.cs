@@ -4,13 +4,13 @@ using System.Collections.ObjectModel;
 namespace Nyapl.Parsing.Tree;
 
 public class DestructureNode : StatementNode {
-	public AstListNode<DestructureItemNode> Names { get; }
+	public AstListNode<DestructureItemNode> Items { get; }
 	public bool Mutable { get; }
 	public ExpressionNode Expression { get; }
 
-	public DestructureNode(SourceLoc location, AstListNode<DestructureItemNode> names, bool mutable, ExpressionNode expression) {
+	public DestructureNode(SourceLoc location, AstListNode<DestructureItemNode> items, bool mutable, ExpressionNode expression) {
 		Location = location;
-		Names = names;
+		Items = items;
 		Mutable = mutable;
 		Expression = expression;
 	}
@@ -18,7 +18,7 @@ public class DestructureNode : StatementNode {
 	public override ReadOnlyCollection<AstNode> GetChildren() {
 		List<AstNode> children = new();
 
-		children.Add(Names);
+		children.Add(Items);
 		children.Add(Expression);
 
 		return children.AsReadOnly();

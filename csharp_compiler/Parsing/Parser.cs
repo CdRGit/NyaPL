@@ -137,7 +137,12 @@ public class Parser {
 			var tok = tokens.Take(KeywordKind.Hole);
 			return new HoleDestructureNode(tok.Location);
 		}
-		throw new Exception($"ParseStatement(): statement starting with ${tokens.Current} not implemented yet");
+		else if (tokens.Match(TokenKind.LParen)) {
+			var loc = tokens.Current.Location;
+			var children = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseDestructureItem);
+			return new TupleDestructureNode(loc, children);
+		}
+		throw new Exception($"ParseDestructureItem(): destructure item starting with ${tokens.Current} not implemented yet");
 	}
 
 	private ElifStatementNode ParseElifStatement(TokenList.Context tokens) {
