@@ -1,8 +1,0 @@
-digraph {
-node [shape="box"]
-entry [label="write_num", shape="Mdiamond"]
-return [label="return", shape="octagon"]
-entry -> n8
-n8 [label="r22:04 <- a00:04\nlocal[value] <- r22:04\nr23:08 <- intrinsic:write_num\nr24:04 <- local[value]\np00:04 <- r24:04\nr25:00 <- r23:08(1)\nreturn r25:00\n", shape="Msquare"]
-n8 -> return
-}
