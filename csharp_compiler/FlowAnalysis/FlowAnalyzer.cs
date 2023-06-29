@@ -44,6 +44,13 @@ public class FlowAnalyzer {
 					}
 					ctx.Returns = returnsCopy || allIfsReturn;
 				} break;
+				// easier than if but still requires some thinking
+				case WhileStatementNode @while: {
+					bool returnsCopy = ctx.Returns;
+					ctx.Returns = false;
+					Analyze(ctx, @while.Body);
+					ctx.Returns = returnsCopy || ctx.Returns;
+				} break;
 
 				case ReturnStatementNode @return:
 					ctx.Returns = true;

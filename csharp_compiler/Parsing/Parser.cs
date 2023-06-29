@@ -175,6 +175,16 @@ public class Parser {
 		return new(loc, ifExpr, ifBody, elifs.AsReadOnly(), @else);
 	}
 
+	private WhileStatementNode ParseWhileStatement(TokenList.Context tokens) {
+		var loc = tokens.Take(KeywordKind.While).Location;
+
+		var expr = ParseExpression(tokens);
+
+		var body = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
+
+		return new(loc, expr, body);
+	}
+
 	private LValueNode ParseLValue(TokenList.Context tokens) {
 		// for now the only lvalue is a direct identifier
 		if (tokens.Match(TokenKind.Identifier)) {
@@ -219,6 +229,8 @@ public class Parser {
 			return ParseFunction(tokens);
 		} else if (tokens.Match(KeywordKind.If)) {
 			return ParseIfStatement(tokens);
+		} else if (tokens.Match(KeywordKind.While)) {
+			return ParseWhileStatement(tokens);
 		} else if (tokens.Match(KeywordKind.Unsafe)) {
 			var loc = tokens.Take(KeywordKind.Unsafe).Location;
 			var effects = ParseList(tokens, TokenKind.LSquare, TokenKind.RSquare, null, ParseSideEffect);
