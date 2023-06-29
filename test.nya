@@ -13,11 +13,6 @@ fn [stdio] main(): i32 {
 	let mut b = 5;
 	if false {
 		a = 5;
-	} // we need PHI
-	elif false {
-		a = 6 + a;
-	} elif false {
-		a = 7 / a;
 	} else {
 		a = a * a;
 		b = 6;
