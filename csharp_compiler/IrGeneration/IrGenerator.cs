@@ -15,10 +15,16 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, ExpressionNode expression) {
 		switch (expression) {
 			case TupleNode tuple: {
-					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
+					if (tuple.Values.Children.Count == 0) {
+						block.AddInstr(new(
+							IrInstr.IrKind.EmptyTuple,
+							ctx.GetNewRegister(0)
+						));
+					}
+
 					ushort size = 0;
 					IrParam.Register? prevreg = null;
-					for (var i = 0; i < valRegs.Length; i++) {
+					for (var i = 0; i < tuple.Values.Children.Count; i++) {
 						block = Generate(block, ctx, tuple.Values.Children[i]);
 						var reg = ctx.GetPreviousRegister();
 						size += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
@@ -216,6 +222,23 @@ public class IrGenerator {
 						new IrParam.Local(named.Name),
 						sourceRegister
 					));
+					return block;
+				}
+			case TupleLValueNode tuple: {
+					ulong rollingOffset = 0;
+					for (int i = 0; i < tuple.Children.Children.Count; i++) {
+						var child = tuple.Children.Children[i];
+						var size = ctx.TypeCtx.GetSize(child.Type!);
+						var reg = ctx.GetNewRegister(size);
+						block.AddInstr(new(
+							IrInstr.IrKind.LoadTupleSection,
+							reg,
+							sourceRegister,
+							new IrParam.Offset(rollingOffset)
+						));
+						block = Generate(block, ctx, child, reg);
+						rollingOffset += size;
+					}
 					return block;
 				}
 			default:

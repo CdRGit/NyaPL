@@ -20,6 +20,12 @@ public class TypeChecker {
 
 	private LValueNode Check(Context ctx, LValueNode lVal) {
 		switch (lVal) {
+			case TupleLValueNode tupl: {
+				var children = new AstListNode<LValueNode>(tupl.Children.Location, tupl.Children.Select(l => Check(ctx, l)).ToList().AsReadOnly());
+				var t = new Apply(tuple, children.Select(c => c.Type!).ToList().AsReadOnly());
+
+				return new TupleLValueNode(tupl.Location, children, t);
+			}
 			case NamedLValueNode named: {
 				if (!ctx.LookupVar(named.Name, out Typ? t, out var fullName, out var mutable)) throw new TypeError(named.Location, $"Variable {named.Name} not declared");
 				if (!mutable) throw new TypeError(named.Location, $"Variable {named.Name} not mutable");

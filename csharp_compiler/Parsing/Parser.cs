@@ -186,11 +186,16 @@ public class Parser {
 	}
 
 	private LValueNode ParseLValue(TokenList.Context tokens) {
-		// for now the only lvalue is a direct identifier
 		if (tokens.Match(TokenKind.Identifier)) {
 			var name = tokens.Take(TokenKind.Identifier);
 
 			return new NamedLValueNode(name.Location, name.StrVal);
+		}
+		else if (tokens.Match(TokenKind.LParen)) {
+			var loc = tokens.Current.Location;
+			var children = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseLValue);
+
+			return new TupleLValueNode(loc, children);
 		}
 		throw new Exception($"Cannot parse LValue starting with {tokens.Current}");
 	}

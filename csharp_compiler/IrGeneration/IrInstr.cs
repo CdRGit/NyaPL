@@ -31,6 +31,7 @@ public readonly struct IrInstr {
 
 		IntLiteral,
 		BoolLiteral,
+		EmptyTuple,
 
 		BranchBool,
 		BranchAlways,

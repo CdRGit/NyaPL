@@ -85,6 +85,9 @@ public class Compiler {
 			case IrParam.Count c:
 				builder.Append($"{c.Value}");
 				break;
+			case IrParam.Offset o:
+				builder.Append($"{o.Value}");
+				break;
 			default:
 				throw new Exception($"PrettyPrint not implemented yet for IrParam of type {param.GetType().Name}");
 		}
@@ -92,8 +95,11 @@ public class Compiler {
 
 	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
 		Dictionary<IrInstr.IrKind, string> operators = new() {
+			{IrInstr.IrKind.Subtract, "-"},
 			{IrInstr.IrKind.Add,      "+"},
 			{IrInstr.IrKind.Multiply, "*"},
+			{IrInstr.IrKind.Modulo,   "%"},
+			{IrInstr.IrKind.Equal,    "=="},
 			{IrInstr.IrKind.NotEq,    "!="},
 		};
 		switch (instr.Kind) {
@@ -104,6 +110,10 @@ public class Compiler {
 				builder.Append("br ");
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("?\n");
+				break;
+			case IrInstr.IrKind.EmptyTuple:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ()\n");
 				break;
 			case IrInstr.IrKind.IntLiteral:
 			case IrInstr.IrKind.BoolLiteral:
@@ -132,8 +142,27 @@ public class Compiler {
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
+			case IrInstr.IrKind.LoadTupleSection:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append($".offset(");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append(")\n");
+				break;
+			case IrInstr.IrKind.AppendTupleSection:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append($" ... ");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
 			case IrInstr.IrKind.Add:
+			case IrInstr.IrKind.Subtract:
 			case IrInstr.IrKind.Multiply:
+			case IrInstr.IrKind.Modulo:
+			case IrInstr.IrKind.Equal:
 			case IrInstr.IrKind.NotEq:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
