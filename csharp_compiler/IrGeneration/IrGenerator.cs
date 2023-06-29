@@ -288,6 +288,35 @@ public class IrGenerator {
 			case IfStatementNode i: {
 				return Generate(block, ctx, i);
 			}
+			case WhileStatementNode w: {
+				var expr = ctx.NewBlock();
+				block.AddInstr(new(
+					IrInstr.IrKind.BranchAlways,
+					new IrParam.Block(expr)
+				));
+				block.AddConnection(expr);
+				block = expr;
+				var end = ctx.NewBlock();
+				var body = ctx.NewBlock();
+				block = Generate(block, ctx, w.Expr);
+				block.AddInstr(new(
+					IrInstr.IrKind.BranchBool,
+					ctx.GetPreviousRegister(),
+					new IrParam.Block(end),
+					new IrParam.Block(body)
+				));
+				block.AddConnection(end, "false");
+				block.AddConnection(body, "true");
+				foreach (var s in w.Body) {
+					body = Generate(body, ctx, s);
+				}
+				body.AddInstr(new(
+					IrInstr.IrKind.BranchAlways,
+					new IrParam.Block(expr)
+				));
+				body.AddConnection(expr);
+				return end;
+			}
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
 		}
