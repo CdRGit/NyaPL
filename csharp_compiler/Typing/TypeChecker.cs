@@ -175,6 +175,16 @@ public class TypeChecker {
 		return new(ifStatement.Location, expr, body, elifs, @else);
 	}
 
+	private WhileStatementNode Check(Context ctx, WhileStatementNode whileStatement) {
+		var expr = Check(ctx, whileStatement.Expr);
+		ctx.Unify(expr.Location, expr.Type!, boolean);
+		ctx.NewVariableScope(true);
+		var body = new AstListNode<StatementNode>(whileStatement.Body.Location, whileStatement.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
+		ctx.EndVariableScope();
+
+		return new(whileStatement.Location, expr, body);
+	}
+
 	private StatementNode Check(Context ctx, StatementNode statement) {
 		switch (statement) {
 			case ReturnStatementNode ret: {
@@ -212,6 +222,9 @@ public class TypeChecker {
 					}
 				}
 				return new DestructureNode(destruct.Location, names, destruct.Mutable, expression);
+			}
+			case WhileStatementNode @while: {
+				return Check(ctx, @while);
 			}
 			case IfStatementNode @if: {
 				return Check(ctx, @if);
