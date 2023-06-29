@@ -12,6 +12,7 @@ public class Lexer {
 		{"elif",     KeywordKind.ElIf},
 		{"else",     KeywordKind.Else},
 		{"let",      KeywordKind.Let},
+		{"mut",      KeywordKind.Mutable},
 		{"typedef",  KeywordKind.TypeDef},
 		{"return",   KeywordKind.Return},
 		{"platform", KeywordKind.Platform},
@@ -182,6 +183,7 @@ public enum KeywordKind {
 	Function,
 	TypeDef,
 	Let,
+	Mutable,
 	Return,
 
 	False,

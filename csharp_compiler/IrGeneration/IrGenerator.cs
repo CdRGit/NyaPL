@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 using Nyapl.Parsing.Tree;
 
@@ -11,97 +12,107 @@ using Nyapl.Typing;
 namespace Nyapl.IrGeneration;
 
 public class IrGenerator {
-	private List<IrInstr> Generate(Context ctx, ExpressionNode expression) {
-		List<IrInstr> instructions = new();
-
+	private IrBlock Generate(IrBlock block, Context ctx, ExpressionNode expression) {
 		switch (expression) {
 			case TupleNode tuple: {
 					var valRegs = new (ulong, ulong)[tuple.Values.Children.Count];
-					var rollingOffset = 0ul;
+					ushort size = 0;
+					IrParam.Register? prevreg = null;
 					for (var i = 0; i < valRegs.Length; i++) {
-						instructions.AddRange(Generate(ctx, tuple.Values.Children[i]));
-						valRegs[i] = (ctx.GetPreviousRegister(), rollingOffset);
-						rollingOffset += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
+						block = Generate(block, ctx, tuple.Values.Children[i]);
+						var reg = ctx.GetPreviousRegister();
+						size += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
+						if (i == 0) {
+							prevreg = reg;
+						} else {
+							var register = ctx.GetNewRegister(size);
+							block.AddInstr(new(
+								IrInstr.IrKind.AppendTupleSection,
+								ctx.GetNewRegister(size),
+								prevreg!,
+								reg
+							));
+						}
 					}
-					var register = ctx.GetNewRegister(ctx.TypeCtx.GetSize(tuple.Type!));
-					instructions.AddRange(valRegs.Select(r => new IrInstr(
-							IrInstr.IrKind.StoreTupleSection,
-							register,
-							r.Item1,
-							r.Item2
-						)));
-				} break;
+					return block;
+				}
 			case BoolLiteralNode boolean: {
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.BoolLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
-						boolean.Value ? 1ul : 0ul
+						new IrParam.Bool(boolean.Value)
 					));
-				} break;
+					return block;
+				}
 			case IntLiteralNode integer: {
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.IntLiteral,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
-						integer.Value
+						new IrParam.Int(integer.Value)
 					));
-				} break;
+					return block;
+				}
 			case IntrinsicNode intrinsic: {
 						var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), intrinsic.Name);
-						instructions.Add(new(
+						block.AddInstr(new(
 							IrInstr.IrKind.LoadIntrinsic,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
-							(ulong)index
+							new IrParam.Intrinsic((ulong)index)
 						));
-					} break;
+						return block;
+					}
 			case VarLookupNode lookup: {
-					var register = ctx.GetVariable(lookup.Name);
-					if (register == 0xFFFF_FFFF_FFFF_FFFF) {
+					var function = ctx.GetFunction(lookup.Name);
+					const ulong notFound = 0xFFFF_FFFF_FFFF_FFFF;
+					if (function != notFound) {
 						// we are looking up a function
-						instructions.Add(new(
+						block.AddInstr(new(
 							IrInstr.IrKind.LoadFunction,
 							ctx.GetNewRegister(ctx.Platform.PointerSize),
-							ctx.GetFunction(lookup.Name)
+							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
 						));
 					} else {
 						// variable found
-						instructions.Add(new(
-							IrInstr.IrKind.Copy,
+						block.AddInstr(new(
+							IrInstr.IrKind.LoadLocal,
 							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							register
+							new IrParam.Local(lookup.Name)
 						));
 					}
-				} break;
+					return block;
+				}
 			case CallNode call: {
-					instructions.AddRange(Generate(ctx, call.BaseExpr));
+					block = Generate(block, ctx, call.BaseExpr);
 					var baseReg = ctx.GetPreviousRegister();
-					var argRegs = new (ulong, ulong)[call.Arguments.Children.Count];
+					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
-						instructions.AddRange(Generate(ctx, call.Arguments.Children[i]));
-						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister() & 0xFFFF_0000_0000_0000);
+						block = Generate(block, ctx, call.Arguments.Children[i]);
+						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
 					}
-					for (ulong i = 0; i < (ulong)argRegs.Length; i++) {
-						instructions.Add(new(
+					for (uint i = 0; i < argRegs.Length; i++) {
+						block.AddInstr(new(
 							IrInstr.IrKind.StoreParam,
-							i | (argRegs[i].Item2),
+							new IrParam.Parameter(argRegs[i].Item2, i),
 							argRegs[i].Item1
 						));
 					}
-					instructions.Add(new(
+					block.AddInstr(new(
 						IrInstr.IrKind.Call,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
 						baseReg,
-						(ulong)call.Arguments.Children.Count
+						new IrParam.Count((ulong)call.Arguments.Children.Count)
 					));
-				} break;
+					return block;
+				}
 			case BinOpNode bin: {
 					var size = ctx.TypeCtx.GetSize(bin.Type!);
-					instructions.AddRange(Generate(ctx, bin.LExpr));
+					block = Generate(block, ctx, bin.LExpr);
 					var leftReg = ctx.GetPreviousRegister();
-					instructions.AddRange(Generate(ctx, bin.RExpr));
+					block = Generate(block, ctx, bin.RExpr);
 					var rightReg = ctx.GetPreviousRegister();
 					switch (bin.OP) {
 						case BinOpKind.Multiply:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Multiply,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -109,7 +120,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Divide:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Divide,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -117,7 +128,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Modulo:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Modulo,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -125,7 +136,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Add:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Add,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -133,7 +144,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Subtract:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Subtract,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -141,7 +152,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.Equal:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Equal,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -149,7 +160,7 @@ public class IrGenerator {
 							));
 							break;
 						case BinOpKind.NotEq:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.NotEq,
 								ctx.GetNewRegister(size),
 								leftReg,
@@ -159,28 +170,29 @@ public class IrGenerator {
 						default:
 							throw new Exception($"Generating `BinOpKind.{bin.OP}` not implemented yet");
 					}
-				} break;
+					return block;
+				}
 			case UnOpNode un: {
 					var size = ctx.TypeCtx.GetSize(un.Type!);
-					instructions.AddRange(Generate(ctx, un.Expr));
+					block = Generate(block, ctx, un.Expr);
 					var reg = ctx.GetPreviousRegister();
 					switch (un.OP) {
 						case UnOpKind.Not:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Not,
 								ctx.GetNewRegister(size),
 								reg
 							));
 							break;
 						case UnOpKind.Negative:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Negative,
 								ctx.GetNewRegister(size),
 								reg
 							));
 							break;
 						case UnOpKind.Positive:
-							instructions.Add(new(
+							block.AddInstr(new(
 								IrInstr.IrKind.Positive,
 								ctx.GetNewRegister(size),
 								reg
@@ -189,39 +201,66 @@ public class IrGenerator {
 						default:
 							throw new Exception($"Generating `UnOpKind.{un.OP}` not implemented yet");
 					}
-				} break;
+					return block;
+				}
 			default:
 				throw new Exception($"Generate(ctx, {expression.GetType().Name}) not implemented yet");
 		}
-
-		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, StatementNode statement) {
-		List<IrInstr> instructions = new();
+	private IrBlock Generate(IrBlock block, Context ctx, LValueNode lVal, IrParam.Register sourceRegister) {
+		switch (lVal) {
+			case NamedLValueNode named: {
+					block.AddInstr(new(
+						IrInstr.IrKind.StoreLocal,
+						new IrParam.Local(named.Name),
+						sourceRegister
+					));
+					return block;
+				}
+			default:
+				throw new Exception($"Generate(ctx, {lVal.GetType().Name}, sourceRegister) not implemented yet");
+		}
+	}
 
+	private IrBlock Generate(IrBlock block, Context ctx, StatementNode statement) {
 		switch (statement) {
-			case NoopStatementNode: break; // NOP
+			case NoopStatementNode: return block; // NOP
 			case DeclareVarNode v: {
-				instructions.AddRange(Generate(ctx, v.Expression));
-				ctx.SetVariable(v.Name, ctx.GetPreviousRegister());
-			} break;
+				block = Generate(block, ctx, v.Expression);
+				block.AddInstr(new(
+					IrInstr.IrKind.StoreLocal,
+					new IrParam.Local(v.Name),
+					ctx.GetPreviousRegister()
+				));
+				return block;
+			}
+			case ReassignNode reassign: {
+				block = Generate(block, ctx, reassign.Expr);
+				var sourceRegister = ctx.GetPreviousRegister();
+				block = Generate(block, ctx, reassign.LVal, sourceRegister);
+				return block;
+			}
 			case DestructureNode d: {
-				instructions.AddRange(Generate(ctx, d.Expression));
-				ulong tupReg = ctx.GetPreviousRegister();
+				block = Generate(block, ctx, d.Expression);
+				var tupReg = ctx.GetPreviousRegister();
 				ulong rollingOffset = 0;
 				for (int i = 0; i < d.Names.Children.Count; i++) {
 					var name = d.Names.Children[i];
 					switch (name) {
 						case NamedDestructureNode named: {
 								var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
-								instructions.Add(new(
+								block.AddInstr(new(
 									IrInstr.IrKind.LoadTupleSection,
 									reg,
 									tupReg,
-									rollingOffset
+									new IrParam.Offset(rollingOffset)
 								));
-								ctx.SetVariable(named.Name, reg);
+								block.AddInstr(new(
+									IrInstr.IrKind.StoreLocal,
+									new IrParam.Local(named.Name),
+									reg
+								));
 							} break;
 						case HoleDestructureNode: break;
 						default:
@@ -229,119 +268,130 @@ public class IrGenerator {
 					}
 					rollingOffset += ctx.TypeCtx.GetSize(name.Type!);
 				}
-			} break;
+				return block;
+			}
 			case ReturnStatementNode r: {
-				instructions.AddRange(Generate(ctx, r.Expression));
-				instructions.Add(new(
+				block = Generate(block, ctx, r.Expression);
+				block.AddInstr(new(
 					IrInstr.IrKind.Return,
 					ctx.GetPreviousRegister()
 				));
-			} break;
+				return block;
+			}
 			case UnsafeStatementNode u: {
 				// safety should have been checked by the typechecker, so we just ignore it and append all the instructions in this unsafe block
 				foreach (var s in u.Body) {
-					instructions.AddRange(Generate(ctx, s));
+					block = Generate(block, ctx, s);
 				}
-			} break;
+				return block;
+			}
 			case IfStatementNode i: {
-				// IF
-				instructions.AddRange(Generate(ctx, i.IfExpr));
-				ulong exprReg = ctx.GetPreviousRegister();
-				int jumpToNext = instructions.Count;
-				List<int> jumpToEnd = new();
-				const ulong DEFAULT_OFFSET = 0xFFFF_FFFF_FFFF_FFFF;
-				instructions.Add(new(
-					IrInstr.IrKind.JumpIfFalse,
-					DEFAULT_OFFSET,
-					exprReg
-				));
-				foreach (var s in i.IfBody) {
-					instructions.AddRange(Generate(ctx, s));
-				}
-				jumpToEnd.Add(instructions.Count);
-				instructions.Add(new(
-					IrInstr.IrKind.JumpAlways,
-					DEFAULT_OFFSET
-				));
-				var next = instructions[jumpToNext];
-				instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
-
-				// ELIF
-				foreach (var e in i.Elifs) {
-					instructions.AddRange(Generate(ctx, e.Expr));
-					exprReg = ctx.GetPreviousRegister();
-					jumpToNext = instructions.Count;
-					instructions.Add(new(
-						IrInstr.IrKind.JumpIfFalse,
-						DEFAULT_OFFSET,
-						exprReg
-					));
-					foreach (var s in e.Body) {
-						instructions.AddRange(Generate(ctx, s));
-					}
-					jumpToEnd.Add(instructions.Count);
-					instructions.Add(new(
-						IrInstr.IrKind.JumpAlways,
-						DEFAULT_OFFSET
-					));
-					next = instructions[jumpToNext];
-					instructions[jumpToNext] = new(next.Kind, (ulong)(instructions.Count - jumpToNext), next.Param1, next.Param2);
-				}
-
-				// ELSE
-				if (i.Else != null) {
-					foreach (var s in i.Else.Body) {
-						instructions.AddRange(Generate(ctx, s));
-					}
-				}
-
-				// time to patch the jumpToEnd table
-				foreach (var idx in jumpToEnd) {
-					next = instructions[idx];
-					instructions[idx] = new(next.Kind, (ulong)(instructions.Count - idx), next.Param1, next.Param2);
-				}
-			} break;
+				return Generate(block, ctx, i);
+			}
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
 		}
-
-		return instructions;
 	}
 
-	private List<IrInstr> Generate(Context ctx, FunctionNode function) {
-		List<IrInstr> instructions = new();
+	private IrBlock Generate(IrBlock block, Context ctx, IfStatementNode @if) {
+		var end = ctx.NewBlock();
+		var next = @if.Elifs.Count > 0 || @if.Else != null ? ctx.NewBlock() : end;
+		var body = ctx.NewBlock();
+		// IF
+		block = Generate(block, ctx, @if.IfExpr);
+		var exprReg = ctx.GetPreviousRegister();
+		block.AddInstr(new(
+			IrInstr.IrKind.BranchBool,
+			exprReg,
+			new IrParam.Block(next),
+			new IrParam.Block(body)
+		));
+		block.AddConnection(next, "false");
+		block.AddConnection(body, "true");
+		foreach (var s in @if.IfBody) {
+			body = Generate(body, ctx, s);
+		}
+		body.AddInstr(new(
+			IrInstr.IrKind.BranchAlways,
+			new IrParam.Block(end)
+		));
+		body.AddConnection(end);
+		// ELIF
+		for (int i = 0; i < @if.Elifs.Count; i++) {
+			var e = @if.Elifs[i];
+			block = next;
+			// elif expr is in block
+			block = Generate(block, ctx, e.Expr);
+			next = @if.Elifs.Count > i + 1 || @if.Else != null ? ctx.NewBlock() : end;
+			body = ctx.NewBlock();
+			exprReg = ctx.GetPreviousRegister();
+			block.AddInstr(new(
+				IrInstr.IrKind.BranchBool,
+				exprReg,
+				new IrParam.Block(next),
+				new IrParam.Block(body)
+			));
+			block.AddConnection(next, "false");
+			block.AddConnection(body, "true");
+			foreach (var s in e.Body) {
+				body = Generate(body, ctx, s);
+			}
+			body.AddInstr(new(
+				IrInstr.IrKind.BranchAlways,
+				new IrParam.Block(end)
+			));
+			body.AddConnection(end);
+		}
 
-		// add arguments to registers
-		ulong i = 0;
+		// ELSE
+		if (@if.Else != null) {
+			body = next;
+			foreach (var s in @if.Else.Body) {
+				body = Generate(body, ctx, s);
+			}
+			body.AddInstr(new(
+				IrInstr.IrKind.BranchAlways,
+				new IrParam.Block(end)
+			));
+			body.AddConnection(end);
+		}
+		return end;
+	}
+
+	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
+		// move arguments to registers
+		uint i = 0;
 		foreach (var param in function.Parameters) {
-			instructions.Add(new(
+			block.AddInstr(new(
 				IrInstr.IrKind.LoadArgument,
 				ctx.GetNewRegister(ctx.TypeCtx.GetSize(param.Type.Type!)),
-				((ulong)ctx.TypeCtx.GetSize(param.Type.Type!) << 48) | (ulong)(i++)
+				new IrParam.Argument(ctx.TypeCtx.GetSize(param.Type.Type!), i++)
 			));
-			ctx.SetVariable(param.Name, ctx.GetPreviousRegister());
+			block.AddInstr(new(
+				IrInstr.IrKind.StoreLocal,
+				new IrParam.Local(param.Name),
+				ctx.GetPreviousRegister()
+			));
 		}
 
 		foreach (var statement in function.Body) {
-			instructions.AddRange(Generate(ctx, statement));
+			block = Generate(block, ctx, statement);
 		}
 
-		return instructions;
+		return block;
 	}
 
-	public IrList Generate(TypedFileNode file) {
-		List<IrInstr> instructions = new();
-
-		Dictionary<string, int> functions = new();
+	public IrResult Generate(TypedFileNode file) {
+		Dictionary<string, IrBlock> functions = new();
 		Context ctx = new(file.Platform, file.Functions.Select(f => f.Name).ToArray(), file.Context);
 
 		foreach(var function in file.Functions) {
-			int fnIdx = instructions.Count;
-			instructions.AddRange(Generate(ctx, function));
-			functions[function.Name] = fnIdx;
+			IrBlock block = ctx.NewBlock();
+			Generate(block, ctx, function);
+			functions[function.Name] = block;
 		}
 
-		return new(file.Platform, instructions.AsReadOnly(), functions.AsReadOnly());
+		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly());
 	}
 
 	private class Context {
@@ -351,20 +401,29 @@ public class IrGenerator {
 			TypeCtx = typeCtx;
 		}
 
+		private List<IrBlock> blocks = new();
+
+		public IrBlock NewBlock() {
+			IrBlock block = new(blocks.Count);
+			blocks.Add(block);
+			return block;
+		}
+
+		public ReadOnlyCollection<IrBlock> GetBlocks() {
+			return blocks.AsReadOnly();
+		}
+
 		public Localizer.Platform Platform { get; }
 		public TypeChecker.Context TypeCtx { get; }
 		public string[] Functions { get; }
 
-		private ulong currentRegister = 0;
-		private ulong previousRegister = 0;
-		private Dictionary<string, ulong> variables = new();
-
-		public ulong GetNewRegister(ushort size) => previousRegister = currentRegister++ | (ulong)size << 48;
-		public ulong GetPreviousRegister() => previousRegister;
-
 		public ulong GetFunction(string name) => (ulong)Array.IndexOf(Functions, name);
 
-		public void SetVariable(string name, ulong register) => variables[name] = register;
-		public ulong GetVariable(string name) => variables.ContainsKey(name) ? variables[name] : 0xFFFF_FFFF_FFFF_FFFF;
+
+		private uint currentRegister = 0;
+		private IrParam.Register? previousRegister;
+
+		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
+		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 	}
 }

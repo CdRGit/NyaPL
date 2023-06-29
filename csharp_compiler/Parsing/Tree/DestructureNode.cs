@@ -5,11 +5,13 @@ namespace Nyapl.Parsing.Tree;
 
 public class DestructureNode : StatementNode {
 	public AstListNode<DestructureItemNode> Names { get; }
+	public bool Mutable { get; }
 	public ExpressionNode Expression { get; }
 
-	public DestructureNode(SourceLoc location, AstListNode<DestructureItemNode> names, ExpressionNode expression) {
+	public DestructureNode(SourceLoc location, AstListNode<DestructureItemNode> names, bool mutable, ExpressionNode expression) {
 		Location = location;
 		Names = names;
+		Mutable = mutable;
 		Expression = expression;
 	}
 
@@ -22,5 +24,5 @@ public class DestructureNode : StatementNode {
 		return children.AsReadOnly();
 	}
 
-	public override string ToString() => $"Destructure";
+	public override string ToString() => $"Destructure {(Mutable ? "[Mutable] " : "")}";
 }

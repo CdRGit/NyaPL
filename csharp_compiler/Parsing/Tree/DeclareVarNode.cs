@@ -5,12 +5,14 @@ namespace Nyapl.Parsing.Tree;
 
 public class DeclareVarNode : StatementNode {
 	public string Name { get; }
+	public bool Mutable { get; }
 	public TypeNode Type { get; }
 	public ExpressionNode Expression { get; }
 
-	public DeclareVarNode(SourceLoc location, string name, TypeNode type, ExpressionNode expression) {
+	public DeclareVarNode(SourceLoc location, string name, bool mutable, TypeNode type, ExpressionNode expression) {
 		Location = location;
 		Name = name;
+		Mutable = mutable;
 		Type = type;
 		Expression = expression;
 	}
@@ -24,5 +26,5 @@ public class DeclareVarNode : StatementNode {
 		return children.AsReadOnly();
 	}
 
-	public override string ToString() => $"DeclareVar {Name}";
+	public override string ToString() => $"DeclareVar {(Mutable ? "[Mutable] " : "")}{Name}";
 }

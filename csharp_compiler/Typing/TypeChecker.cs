@@ -18,6 +18,17 @@ public class TypeChecker {
 	public static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
 	public static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
 
+	private LValueNode Check(Context ctx, LValueNode lVal) {
+		switch (lVal) {
+			case NamedLValueNode named: {
+				if (!ctx.LookupVar(named.Name, out Typ? t, out var fullName, out var mutable)) throw new TypeError(named.Location, $"Variable {named.Name} not declared");
+				if (!mutable) throw new TypeError(named.Location, $"Variable {named.Name} not mutable");
+				return new NamedLValueNode(named.Location, fullName, t);
+			}
+		}
+		throw new Exception($"Unimplemented: Check({lVal.GetType().Name})");
+	}
+
 	private SideEffectNode Check(Context ctx, SideEffectNode effect) {
 		return new(effect.Location, effect.Name, new NamedEffect(effect.Name));
 	}
@@ -37,7 +48,7 @@ public class TypeChecker {
 
 	private ParameterNode Check(Context ctx, ParameterNode parameter, bool allowHole = true) {
 		var type = Check(ctx, parameter.Type, allowHole);
-		ctx.DeclareVar(parameter.Name, type.Type!);
+		ctx.DeclareVar(parameter.Name, type.Type!, mutable: false);
 		return new(parameter.Location, parameter.Name, type);
 	}
 
@@ -84,7 +95,7 @@ public class TypeChecker {
 				return new BoolLiteralNode(bLit.Location, bLit.Value, boolean);
 			}
 			case VarLookupNode varLookup: {
-				if (!ctx.LookupVar(varLookup.Name, out Typ? t, out var fullName)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
+				if (!ctx.LookupVar(varLookup.Name, out Typ? t, out var fullName, out _)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
 				return new VarLookupNode(varLookup.Location, fullName, t);
 			}
 			case IntrinsicNode intrinsic: {
@@ -180,8 +191,8 @@ public class TypeChecker {
 				var declaredType = Check(ctx, dec.Type);
 				var expressionType = Check(ctx, dec.Expression);
 				ctx.Unify(declaredType.Location, declaredType.Type, expressionType.Type);
-				if(!ctx.DeclareVar(dec.Name, declaredType.Type!)) throw new TypeError(dec.Location, $"Variable {dec.Name} already declared");
-				return new DeclareVarNode(dec.Location, dec.Name, declaredType, expressionType);
+				if(!ctx.DeclareVar(dec.Name, declaredType.Type!, dec.Mutable)) throw new TypeError(dec.Location, $"Variable {dec.Name} already declared");
+				return new DeclareVarNode(dec.Location, dec.Name, dec.Mutable, declaredType, expressionType);
 			}
 			case DestructureNode destruct: {
 				var names = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Names.Select(n => Check(ctx, n)).ToList().AsReadOnly());
@@ -193,14 +204,14 @@ public class TypeChecker {
 				foreach (var name in names) {
 					switch (name) {
 						case NamedDestructureNode n: {
-								if(!ctx.DeclareVar(n.Name, n.Type!)) throw new TypeError(n.Location, $"Variable {n.Name} already declared");
+								if(!ctx.DeclareVar(n.Name, n.Type!, destruct.Mutable)) throw new TypeError(n.Location, $"Variable {n.Name} already declared");
 							} break;
 						case HoleDestructureNode:
 							break;
 						default: throw new Exception($"Unknown DestructureItemNode: {name.GetType().Name}");
 					}
 				}
-				return new DestructureNode(destruct.Location, names, expression);
+				return new DestructureNode(destruct.Location, names, destruct.Mutable, expression);
 			}
 			case IfStatementNode @if: {
 				return Check(ctx, @if);
@@ -226,6 +237,15 @@ public class TypeChecker {
 				var @new = new UnsafeStatementNode(@unsafe.Location, effects, body);
 
 				return @new;
+			}
+			case ReassignNode reassign: {
+				var lVal = Check(ctx, reassign.LVal);
+				var expr = Check(ctx, reassign.Expr);
+
+				ctx.Unify(reassign.Location, lVal.Type, expr.Type);
+
+				return new ReassignNode(reassign.Location, lVal, expr);
+				throw new Exception("STUB");
 			}
 		}
 		throw new Exception($"Unimplemented: Check({statement.GetType().Name})");
@@ -338,7 +358,7 @@ public class TypeChecker {
 		ctx.EndVariableScope();
 
 		if (!topLevel || shallowPass)
-			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly()), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
+			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly()), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), mutable: false, isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
 
 		if (!topLevel) {
 			ctx.AddNestedFunction(func);
@@ -501,7 +521,7 @@ public class TypeChecker {
 
 		private class VariableScope {
 			public VariableScope? Parent { get; }
-			Dictionary<string, (Typ type, bool isFunc, string fullName)> variables = new();
+			Dictionary<string, (Typ type, bool isFunc, string fullName, bool mutable)> variables = new();
 			bool CanSearchParent { get; }
 
 			public VariableScope(bool canSearchParent) : this(canSearchParent, null) {}
@@ -510,19 +530,22 @@ public class TypeChecker {
 				CanSearchParent = canSearchParent;
 			}
 
-			public bool Declare(string name, Typ type, bool isFunc, string? fullName) {
+			public bool Declare(string name, Typ type, bool isFunc, string? fullName, bool mutable) {
 				if (variables.ContainsKey(name)) return false;
-				variables[name] = (type, isFunc, fullName ?? name);
+				variables[name] = (type, isFunc, fullName ?? name, mutable);
 				return true;
 			}
 
-			public bool Lookup(string name, out Typ? type, out string fullName, bool returnOnlyFunctions = false) {
+			public bool Lookup(string name, out Typ? type, out string fullName, out bool mutable, bool returnOnlyFunctions = false) {
 				type = null;
 				fullName = name;
+				mutable = false;
 				if (variables.ContainsKey(name)) {
 					var v = variables[name];
 					if (v.isFunc)
 						fullName = v.fullName;
+
+					mutable = v.mutable;
 
 					if (returnOnlyFunctions) {
 						// if we are in global scope, return it anyway
@@ -538,7 +561,7 @@ public class TypeChecker {
 					type = v.type;
 					return true;
 				}
-				if (Parent != null) return Parent.Lookup(name, out type, out fullName, returnOnlyFunctions || !CanSearchParent);
+				if (Parent != null) return Parent.Lookup(name, out type, out fullName, out mutable, returnOnlyFunctions || !CanSearchParent);
 				return false;
 			}
 
@@ -587,12 +610,12 @@ public class TypeChecker {
 			variables = variables.Parent;
 		}
 
-		public bool DeclareVar(string name, Typ type, bool isFunc = false, string? fullName = null) {
-			return variables.Declare(name, type, isFunc, fullName);
+		public bool DeclareVar(string name, Typ type, bool mutable, bool isFunc = false, string? fullName = null) {
+			return variables.Declare(name, type, isFunc, fullName, mutable);
 		}
 
-		public bool LookupVar(string name, out Typ? type, out string fullName) {
-			return variables.Lookup(name, out type, out fullName);
+		public bool LookupVar(string name, out Typ? type, out string fullName, out bool mutable) {
+			return variables.Lookup(name, out type, out fullName, out mutable);
 		}
 
 		public Typ Force(Typ t) {

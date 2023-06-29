@@ -1,5 +1,7 @@
 using System;
+using System.Text;
 using System.Linq;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -36,7 +38,7 @@ public class Compiler {
 	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
 	private Dictionary<string, TypedFileNode>      typedFiles     = new();
 	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
-	private Dictionary<string, IrList>             generatedFiles = new();
+	private Dictionary<string, IrResult>           generatedFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -54,6 +56,144 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
+	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
+		switch (param) {
+			case IrParam.Local l:
+				builder.Append($"local[{l.Name}]");
+				break;
+			case IrParam.Int i:
+				builder.Append($"{i.Value}");
+				break;
+			case IrParam.Bool b:
+				builder.Append($"{b.Value}");
+				break;
+			case IrParam.Register r:
+				builder.Append($"r{r.Index:D2}:{r.Size:D2}");
+				break;
+			case IrParam.Function f:
+				builder.Append($"{functions[f.Index]}");
+				break;
+			case IrParam.Intrinsic i:
+				builder.Append($"intrinsic:{intrinsics[i.Index]}");
+				break;
+			case IrParam.Parameter p:
+				builder.Append($"p{p.Index:D2}:{p.Size:D2}");
+				break;
+			case IrParam.Argument a:
+				builder.Append($"a{a.Index:D2}:{a.Size:D2}");
+				break;
+			case IrParam.Count c:
+				builder.Append($"{c.Value}");
+				break;
+			default:
+				throw new Exception($"PrettyPrint not implemented yet for IrParam of type {param.GetType().Name}");
+		}
+	}
+
+	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
+		Dictionary<IrInstr.IrKind, string> operators = new() {
+			{IrInstr.IrKind.Add,      "+"},
+			{IrInstr.IrKind.Multiply, "*"},
+			{IrInstr.IrKind.NotEq,    "!="},
+		};
+		switch (instr.Kind) {
+			case IrInstr.IrKind.BranchAlways:
+				builder.Append("br\n");
+				break;
+			case IrInstr.IrKind.BranchBool:
+				builder.Append("br ");
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append("?\n");
+				break;
+			case IrInstr.IrKind.IntLiteral:
+			case IrInstr.IrKind.BoolLiteral:
+			case IrInstr.IrKind.LoadFunction:
+			case IrInstr.IrKind.LoadIntrinsic:
+			case IrInstr.IrKind.Copy:
+			case IrInstr.IrKind.StoreParam:
+			case IrInstr.IrKind.LoadArgument:
+			case IrInstr.IrKind.StoreLocal:
+			case IrInstr.IrKind.LoadLocal:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			case IrInstr.IrKind.Call:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("(");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append(")\n");
+				break;
+			case IrInstr.IrKind.Return:
+				builder.Append("return ");
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			case IrInstr.IrKind.Add:
+			case IrInstr.IrKind.Multiply:
+			case IrInstr.IrKind.NotEq:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append($" {operators[instr.Kind]} ");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append("\n");
+				break;
+			default:
+				throw new Exception($"PrettyPrint not implemented yet for IrInstr of kind {instr.Kind}");
+		}
+	}
+
+	private void DrawGraph(StreamWriter writer, IrBlock node, string[] functions, string[] intrinsics, HashSet<IrBlock> explored) {
+		if (explored.Contains(node)) return; // early return
+
+		explored.Add(node);
+		StringBuilder labelText = new();
+
+		foreach (var instr in node.Instructions) {
+			PrettyPrint(labelText, instr, functions, intrinsics);
+		}
+
+		labelText.Replace("\n", "\\n");
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+		if (node.HasReturn) {
+			writer.WriteLine($"n{node.ID} -> return");
+		}
+
+		foreach (var target in node.Outgoing) {
+			DrawGraph(writer, target.node, functions, intrinsics, explored);
+			writer.WriteLine(@$"n{node.ID} -> n{target.node.ID} [label=""{target.label}""]");
+		}
+	}
+
+	private void DrawGraph(string funcName, IrBlock body, string[] functions, string[] intrinsics) {
+		string path = $"debug/flowgraph/{funcName}";
+		using (StreamWriter writer = new($"{path}.dot")) {
+			var explored = new HashSet<IrBlock>();
+			writer.WriteLine("digraph {");
+
+			writer.WriteLine(@"node [shape=""box""]");
+
+			writer.WriteLine(@$"entry [label=""{funcName}"", shape=""Mdiamond""]");
+			writer.WriteLine(@$"return [label=""return"", shape=""octagon""]");
+
+			writer.WriteLine($"entry -> n{body.ID}");
+
+			DrawGraph(writer, body, functions, intrinsics, explored);
+
+			writer.WriteLine("}");
+		}
+		// use `$ dot` to draw it
+		if (Args.DrawGraphs) {
+			Process.Start("dot", new[] {"-Tsvg", $"{path}.dot", $"-o{path}.svg"});
+			Process.Start("dot", new[] {"-Tpng", $"{path}.dot", $"-o{path}.png"});
+			//throw new Exception("Actually draw graphs out");
+		}
+	}
+
 	private void PrettyPrint(string file) {
 		TokenList tokens = GetTokens(file);
 		foreach (var token in tokens) Console.WriteLine(token);
@@ -61,15 +201,12 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrList instructions = GetIR(file);
-		var functionsReversed = instructions.Functions.Select(pair => (pair.Value, pair.Key)).ToDictionary(p => p.Item1, p => p.Item2);
-		int i = 0;
-		foreach (var instr in instructions.Instructions) {
-			if (functionsReversed.ContainsKey(i)) Console.WriteLine($"{functionsReversed[i]}:");
-			i++;
-			Console.WriteLine("    " + instr);
+		IrResult instructions = GetIR(file);
+		var functions = AST.Functions.Select(f => f.Name).ToArray();
+		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
+		foreach (var func in instructions.Functions.Keys) {
+			DrawGraph(func, instructions.Functions[func], functions, intrinsics);
 		}
-		foreach (var pair in instructions.Functions) Console.WriteLine($"{pair.Key}: {pair.Value}");
 	}
 
 	private void ReportError(CompileError error, int contextSize) {
@@ -147,6 +284,6 @@ public class Compiler {
 	public TypedFileNode GetAnalyzedAST(string file) =>
 		Memoize(file, analyzedFiles, f => flowAnalyzer.Analyze(GetTypedAST(f)));
 
-	public IrList GetIR(string file) =>
+	public IrResult GetIR(string file) =>
 		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
 }
