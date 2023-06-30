@@ -18,6 +18,7 @@ using Nyapl.Typing;
 using Nyapl.FlowAnalysis;
 
 using Nyapl.IrGeneration;
+using Nyapl.IrTransformation;
 
 namespace Nyapl;
 
@@ -30,6 +31,7 @@ public class Compiler {
 	private TypeChecker  typeChecker  = new();
 	private FlowAnalyzer flowAnalyzer = new();
 	private IrGenerator  irGenerator  = new();
+	private Mem2Reg      mem2reg      = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles      = new();
@@ -39,6 +41,7 @@ public class Compiler {
 	private Dictionary<string, TypedFileNode>      typedFiles     = new();
 	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
 	private Dictionary<string, IrResult>           generatedFiles = new();
+	private Dictionary<string, IrResult>           mem2regFiles   = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -238,7 +241,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetIR(file);
+		IrResult instructions = GetMem2RegIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -323,4 +326,7 @@ public class Compiler {
 
 	public IrResult GetIR(string file) =>
 		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
+
+	public IrResult GetMem2RegIR(string file) =>
+		Memoize(file, mem2regFiles, f => mem2reg.Transform(GetIR(f)));
 }
