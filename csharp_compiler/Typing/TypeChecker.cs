@@ -18,7 +18,7 @@ public class TypeChecker {
 	public static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
 	public static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
 
-	private LValueNode Check(Context ctx, LValueNode lVal) {
+	private LValueNode Check(Context ctx, LValueNode lVal, bool mutableRequired = true) {
 		switch (lVal) {
 			case TupleLValueNode tupl: {
 				var children = new AstListNode<LValueNode>(tupl.Children.Location, tupl.Children.Select(l => Check(ctx, l)).ToList().AsReadOnly());
@@ -28,7 +28,7 @@ public class TypeChecker {
 			}
 			case NamedLValueNode named: {
 				if (!ctx.LookupVar(named.Name, out Typ? t, out var fullName, out var mutable)) throw new TypeError(named.Location, $"Variable {named.Name} not declared");
-				if (!mutable) throw new TypeError(named.Location, $"Variable {named.Name} not mutable");
+				if (!mutable && mutableRequired) throw new TypeError(named.Location, $"Variable {named.Name} not mutable");
 				return new NamedLValueNode(named.Location, fullName, t);
 			}
 		}
@@ -77,7 +77,7 @@ public class TypeChecker {
 				var parameters = new AstListNode<TypeNode>(function.Parameters.Location, function.Parameters.Select(e => Check(ctx, e, allowHole)).ToList().AsReadOnly());
 				var returnType = Check(ctx, function.ReturnType, allowHole);
 				var allTypes = new [] {returnType.Type!}.Concat(parameters.Select(p => p.Type!)).ToList().AsReadOnly();
-				var t = new Apply(new Function(effects.Select(e => e.Effect!).ToList().AsReadOnly()), allTypes);
+				var t = new Apply(new Function(effects.Select(e => e.Effect!).ToList().AsReadOnly(), null), allTypes);
 				return new FunctionTypeNode(function.Location, effects, parameters, returnType, t);
 			}
 			case TupleTypeNode tupleType: {
@@ -144,7 +144,7 @@ public class TypeChecker {
 				Typ t = ctx.NewMeta();
 				var argTs = arguments.Select(_ => ctx.NewMeta()).Append(ctx.NewMeta()).Cast<Typ>().ToList().AsReadOnly();
 				ctx.Unify(baseExpr.Location, argTs.First(), t);
-				var funcType = new Apply(new Function(new List<Effect>(new[] {effects}).AsReadOnly()), argTs);
+				var funcType = new Apply(new Function(new List<Effect>(new[] {effects}).AsReadOnly(), null), argTs);
 				ctx.Unify(baseExpr.Location, funcType, baseType);
 				argTs.Skip(1).Zip(arguments, (a, b) => { ctx.Unify(b.Location, a, b.Type!); return true; }).All(b => b);
 
@@ -278,6 +278,25 @@ public class TypeChecker {
 				return new ReassignNode(reassign.Location, lVal, expr);
 				throw new Exception("STUB");
 			}
+			case StandaloneCallNode call: {
+				var baseExpr = Check(ctx, call.BaseExpr, mutableRequired: false);
+				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg)).ToList().AsReadOnly());
+				var effects = ctx.NewMetaEffect();
+				ctx.AddEffectConstraint(new EffectConstraint.AtMost(arguments.Location, effects, ctx.SideEffects()));
+				Typ baseType = ctx.Force(baseExpr.Type!);
+
+				Typ t = ctx.NewMeta();
+				var argTs = arguments.Select(_ => ctx.NewMeta()).Append(ctx.NewMeta()).Cast<Typ>().ToList().AsReadOnly();
+				ctx.Unify(baseExpr.Location, argTs.First(), t);
+				var funcType = new Apply(new Function(new List<Effect>(new[] {effects}).AsReadOnly(), null), argTs);
+				ctx.Unify(baseExpr.Location, funcType, baseType);
+				argTs.Skip(1).Zip(arguments, (a, b) => { ctx.Unify(b.Location, a, b.Type!); return true; }).All(b => b);
+
+				// temporary(?), forces the call to resolve to a ()
+				ctx.Unify(baseExpr.Location, t, new Apply(tuple, new Typ[]{}.ToList().AsReadOnly()));
+
+				return new StandaloneCallNode(call.Location, baseExpr, arguments, t);
+			}
 		}
 		throw new Exception($"Unimplemented: Check({statement.GetType().Name})");
 	}
@@ -299,7 +318,7 @@ public class TypeChecker {
 			case Apply a:
 				return new Apply(Zonk(ctx, a.BaseType), a.ParameterTypes.Select(t => Zonk(ctx, t)).ToList().AsReadOnly());
 			case Function f:
-				return new Function(Zonk(ctx, f.Effects));
+				return new Function(Zonk(ctx, f.Effects), f.IsIntrinsic);
 			case Trivial:
 			case Intrinsic:
 				return type;
@@ -389,7 +408,7 @@ public class TypeChecker {
 		ctx.EndVariableScope();
 
 		if (!topLevel || shallowPass)
-			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly()), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), mutable: false, isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
+			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly(), false), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), mutable: false, isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
 
 		if (!topLevel) {
 			ctx.AddNestedFunction(func);

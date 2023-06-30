@@ -248,15 +248,21 @@ public class Parser {
 			return new UnsafeStatementNode(loc, effects, body);
 		}
 
-		// reassignment
+		// reassignment / standalone call
 		var lVal = ParseLValue(tokens);
-
-		var loca = tokens.Take(TokenKind.Assign).Location;
-
-		var expr = ParseExpression(tokens);
-		tokens.Take(TokenKind.SemiColon);
-
-		return new ReassignNode(loca, lVal, expr);
+		if (tokens.Match(TokenKind.Assign)) {
+			var loca = tokens.Take(TokenKind.Assign).Location;
+			var expr = ParseExpression(tokens);
+			tokens.Take(TokenKind.SemiColon);
+			return new ReassignNode(loca, lVal, expr);
+		} else if (tokens.Match(TokenKind.LParen)) {
+			var loca = tokens.Current.Location;
+			var arguments = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseExpression);
+			tokens.Take(TokenKind.SemiColon);
+			return new StandaloneCallNode(loca, lVal, arguments);
+		} else {
+			throw new Exception($"Can't parse a statement after lvalue starting with: {tokens.Current}");
+		}
 	}
 
 	private TypeNode ParseTypeTag(TokenList.Context tokens) {

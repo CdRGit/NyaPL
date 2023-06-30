@@ -8,6 +8,7 @@ using Nyapl.Parsing.Tree;
 using Nyapl.Localizing;
 
 using Nyapl.Typing;
+using Nyapl.Typing.Types;
 
 namespace Nyapl.IrGeneration;
 
@@ -102,8 +103,13 @@ public class IrGenerator {
 							argRegs[i].Item1
 						));
 					}
+
+					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
+
+					var pure = fType.IsIntrinsic == false && !fType.Effects.Any();
+
 					block.AddInstr(new(
-						IrInstr.IrKind.Call,
+						pure ? IrInstr.IrKind.Call : IrInstr.IrKind.CallImpure,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
 						baseReg,
 						new IrParam.Count((ulong)call.Arguments.Children.Count)
@@ -214,6 +220,35 @@ public class IrGenerator {
 		}
 	}
 
+	// resolve
+	private IrBlock Generate(IrBlock block, Context ctx, LValueNode lVal) {
+		switch (lVal) {
+			case NamedLValueNode lookup: {
+					var function = ctx.GetFunction(lookup.Name);
+					const ulong notFound = 0xFFFF_FFFF_FFFF_FFFF;
+					if (function != notFound) {
+						// we are looking up a function
+						block.AddInstr(new(
+							IrInstr.IrKind.LoadFunction,
+							ctx.GetNewRegister(ctx.Platform.PointerSize),
+							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
+						));
+					} else {
+						// variable found
+						block.AddInstr(new(
+							IrInstr.IrKind.LoadLocal,
+							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
+							new IrParam.Local(lookup.Name)
+						));
+					}
+					return block;
+				}
+			default:
+				throw new Exception($"Generate(ctx, {lVal.GetType().Name}) not implemented yet");
+		}
+	}
+
+	// assign
 	private IrBlock Generate(IrBlock block, Context ctx, LValueNode lVal, IrParam.Register sourceRegister) {
 		switch (lVal) {
 			case NamedLValueNode named: {
@@ -353,6 +388,34 @@ public class IrGenerator {
 				body.AddConnection(expr);
 				return end;
 			}
+			case StandaloneCallNode call: {
+					block = Generate(block, ctx, call.BaseExpr);
+					var baseReg = ctx.GetPreviousRegister();
+					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
+					for (var i = 0; i < call.Arguments.Children.Count; i++) {
+						block = Generate(block, ctx, call.Arguments.Children[i]);
+						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
+					}
+					for (uint i = 0; i < argRegs.Length; i++) {
+						block.AddInstr(new(
+							IrInstr.IrKind.StoreParam,
+							new IrParam.Parameter(argRegs[i].Item2, i),
+							argRegs[i].Item1
+						));
+					}
+
+					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
+
+					var pure = fType.IsIntrinsic == false && !fType.Effects.Any();
+
+					block.AddInstr(new(
+						pure ? IrInstr.IrKind.Call : IrInstr.IrKind.CallImpure,
+						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
+						baseReg,
+						new IrParam.Count((ulong)call.Arguments.Children.Count)
+					));
+					return block;
+				}
 			default:
 				throw new Exception($"Generate(ctx, {statement.GetType().Name}) not implemented yet");
 		}

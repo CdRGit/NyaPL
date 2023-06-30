@@ -129,6 +129,14 @@ public class Compiler {
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
+			case IrInstr.IrKind.CallImpure:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("[impure](");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append(")\n");
+				break;
 			case IrInstr.IrKind.Call:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");

@@ -37,6 +37,7 @@ public readonly struct IrInstr {
 		BranchAlways,
 
 		Call,
+		CallImpure,
 		Return,
 
 		Multiply,

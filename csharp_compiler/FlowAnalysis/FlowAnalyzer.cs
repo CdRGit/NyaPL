@@ -64,6 +64,7 @@ public class FlowAnalyzer {
 				case DeclareVarNode:
 				case ReassignNode:
 				case DestructureNode:
+				case StandaloneCallNode:
 				case NoopStatementNode: // this one literally does nothing
 					break;
 				default:
