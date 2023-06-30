@@ -7,6 +7,9 @@ public class IrBlock {
 	bool hasReturn;
 	public bool HasReturn { get => hasReturn; }
 
+	public bool InstructionComplete { get; private set; }
+	public void MarkInstructionComplete() => InstructionComplete = true;
+
 	List<IrInstr> instructions = new();
 	public ReadOnlyCollection<IrInstr> Instructions { get => instructions.AsReadOnly(); }
 	List<IrBlock> incoming = new();

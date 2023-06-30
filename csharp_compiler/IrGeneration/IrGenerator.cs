@@ -519,7 +519,7 @@ public class IrGenerator {
 			functions[function.Name] = block;
 		}
 
-		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly());
+		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly(), ctx.RegisterCount);
 	}
 
 	private class Context {
@@ -549,6 +549,7 @@ public class IrGenerator {
 
 
 		private uint currentRegister = 0;
+		public uint RegisterCount { get => currentRegister; }
 		private IrParam.Register? previousRegister;
 
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
