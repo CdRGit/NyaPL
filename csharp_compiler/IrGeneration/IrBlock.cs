@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
 
@@ -17,12 +19,18 @@ public class IrBlock {
 			locals.Add(local.Key, local.Value);
 		}
 	}
+	public ReadOnlyCollection<IrParam.Register> GetLocal(IrParam.Local local) {
+		if (locals.ContainsKey(local.Name))
+			return new List<IrParam.Register>(new[] {locals[local.Name]}).AsReadOnly();
+		return Incoming.SelectMany(i => i.GetLocal(local)).ToList().AsReadOnly();
+	}
 
 	List<IrInstr> instructions = new();
 	public ReadOnlyCollection<IrInstr> Instructions { get => instructions.AsReadOnly(); }
 	List<IrBlock> incoming = new();
+	public ReadOnlyCollection<IrBlock> Incoming => incoming.AsReadOnly();
 	List<(string label, IrBlock node)> outgoing = new();
-	public ReadOnlyCollection<(string label, IrBlock node)> Outgoing { get => outgoing.AsReadOnly(); }
+	public ReadOnlyCollection<(string label, IrBlock node)> Outgoing => outgoing.AsReadOnly();
 
 	public int ID { get; }
 

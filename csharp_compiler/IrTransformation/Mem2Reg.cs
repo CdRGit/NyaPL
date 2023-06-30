@@ -85,6 +85,95 @@ public class Mem2Reg {
 		return newBlock;
 	}
 
+	private IrInstr? Cleanup(Context ctx, IrInstr instr, IrBlock block) {
+		switch (instr.Kind) {
+			case IrInstr.IrKind.LoadTupleSection:
+			case IrInstr.IrKind.AppendTupleSection:
+			case IrInstr.IrKind.Copy:
+			case IrInstr.IrKind.IntLiteral:
+			case IrInstr.IrKind.LoadFunction:
+			case IrInstr.IrKind.LoadIntrinsic:
+			case IrInstr.IrKind.StoreParam:
+			case IrInstr.IrKind.LoadArgument:
+			case IrInstr.IrKind.Add:
+			case IrInstr.IrKind.Multiply:
+			case IrInstr.IrKind.NotEq:
+			case IrInstr.IrKind.Call:
+			case IrInstr.IrKind.CallImpure:
+			case IrInstr.IrKind.Return:
+				return instr;
+			case IrInstr.IrKind.LoadLocal:
+				{
+					var incomingVals = block.Incoming.SelectMany(i => i.GetLocal((instr[1] as IrParam.Local)!).Select(r => (i, r))).ToList().AsReadOnly();
+
+					foreach (var incoming in incomingVals) {
+						Console.WriteLine($"{incoming}");
+					}
+
+					if (incomingVals.Count == 1) {
+						ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
+						return new(
+							IrInstr.IrKind.Copy,
+							instr[0]!,
+							incomingVals.First().Item2
+						);
+					} else {
+						ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
+						var phi = incomingVals.SelectMany(v => new IrParam[] {new IrParam.Block(v.Item1), v.Item2});
+						return new(
+							IrInstr.IrKind.Phi, new[] {instr[0]!}.Concat(phi).ToArray()
+						);
+					}
+					return instr;
+				}
+			case IrInstr.IrKind.StoreLocal:
+				ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
+				return null;
+			case IrInstr.IrKind.BranchAlways: {
+					var newInstr = new IrInstr(
+						IrInstr.IrKind.BranchAlways,
+						new IrParam.Block(ctx.Replace((instr[0] as IrParam.Block)!.Blk))
+					);
+					return newInstr;
+				}
+			case IrInstr.IrKind.BranchBool: {
+					var newInstr = new IrInstr(
+						IrInstr.IrKind.BranchBool,
+						instr[0],
+						new IrParam.Block(ctx.Replace((instr[1] as IrParam.Block)!.Blk)),
+						new IrParam.Block(ctx.Replace((instr[2] as IrParam.Block)!.Blk))
+					);
+					return newInstr;
+				}
+			default:
+				throw new Exception($"Cleanup(Context, IrInstr {instr}, IrBlock) not implemented yet");
+		}
+	}
+
+	private IrBlock Cleanup(Context ctx, IrBlock block, IrBlock newBlock) {
+		if (!newBlock.InstructionComplete) {
+			foreach (var instr in block.Instructions) {
+				var newInstr = Cleanup(ctx, instr, block);
+				if (newInstr.HasValue)
+					newBlock.AddInstr(newInstr.Value);
+			}
+		}
+
+		newBlock.MarkInstructionComplete();
+		newBlock.SetLocals(ctx.GetLocals());
+		ctx.ClearLocals();
+
+		foreach (var child in block.Outgoing) {
+			if (!newBlock.Outgoing.Any(b => b.node.ID == child.node.ID && b.label == child.label)) {
+				IrBlock newChild = ctx.Replace(child.node);
+				newBlock.AddConnection(newChild, child.label);
+				Cleanup(ctx, child.node, newChild);
+			}
+		}
+
+		return newBlock;
+	}
+
 	public IrResult Transform(IrResult lastPass) {
 		var ctx = new Context(lastPass.UsedRegisters);
 
@@ -96,6 +185,18 @@ public class Mem2Reg {
 			var newBlock = ctx.Replace(function.Value);
 			functions[function.Key] = newBlock;
 			Transform(ctx, function.Value, newBlock);
+		}
+
+		var blocks = ctx.GetBlocks();
+		ctx.ClearBlocks();
+
+		var functionsCopy = functions;
+		functions = new();
+
+		foreach (var function in functionsCopy) {
+			var newBlock = ctx.Replace(function.Value);
+			functions[function.Key] = newBlock;
+			Cleanup(ctx, function.Value, newBlock);
 		}
 
 		return new(lastPass.Platform, ctx.GetBlocks(), functions.AsReadOnly(), ctx.UsedRegisters);
@@ -129,6 +230,8 @@ public class Mem2Reg {
 		public bool Replaced(IrBlock previous) {
 			return replacements.ContainsKey(previous.ID);
 		}
+
+		public void ClearBlocks() => replacements = new();
 
 		public ReadOnlyCollection<IrBlock> GetBlocks() => replacements.Values.ToList().AsReadOnly();
 

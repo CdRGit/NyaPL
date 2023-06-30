@@ -61,6 +61,9 @@ public class Compiler {
 
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
+			case IrParam.Block b:
+				builder.Append($"block.{b.Blk.ID}");
+				break;
 			case IrParam.Local l:
 				builder.Append($"local[{l.Name}]");
 				break;
@@ -106,6 +109,17 @@ public class Compiler {
 			{IrInstr.IrKind.NotEq,    "!="},
 		};
 		switch (instr.Kind) {
+			case IrInstr.IrKind.Phi:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- Φ [");
+				for (int i = 1; i < instr.Params.Length; i += 2) {
+					builder.Append(i == 1 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+					builder.Append(": ");
+					PrettyPrint(builder, instr[i+1]!, functions, intrinsics);
+				}
+				builder.Append("]\n");
+				break;
 			case IrInstr.IrKind.BranchAlways:
 				builder.Append("br\n");
 				break;
@@ -199,7 +213,7 @@ public class Compiler {
 
 		labelText.Replace("\n", "\\n");
 
-		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}"",xlabel=""{node.ID}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
 		if (node.HasReturn) {
 			writer.WriteLine($"n{node.ID} -> return");
 		}
