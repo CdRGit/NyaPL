@@ -8,10 +8,6 @@ using Nyapl.IrGeneration;
 namespace Nyapl.IrTransformation;
 
 public class Mem2Reg {
-	private void Cleanup(Context ctx, IrBlock block) {
-		//throw new Exception("cleanup not implemented yet");
-	}
-
 	private IrInstr? Transform(Context ctx, IrInstr instr) {
 		switch (instr.Kind) {
 			case IrInstr.IrKind.IntLiteral:
@@ -35,7 +31,10 @@ public class Mem2Reg {
 					);
 					return newInstr;
 				}
-				else return instr;
+				else {
+					ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
+					return instr;
+				}
 			case IrInstr.IrKind.StoreLocal:
 				ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
 				return null;
@@ -77,8 +76,6 @@ public class Mem2Reg {
 				IrBlock newChild = ctx.Replace(child.node);
 				newBlock.AddConnection(newChild, child.label);
 				Transform(ctx, child.node, newChild);
-			} else {
-				Cleanup(ctx, newBlock.Outgoing.First(b => b.node.ID == child.node.ID).node);
 			}
 		}
 

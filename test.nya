@@ -11,6 +11,8 @@ platform {
 fn [stdio] main(): i32 {
 	let mut a = 5;
 	write_num(a);
+	a = 0;
+	write_num(a);
 	while a != 100 {
 		write_num(a * 2);
 		a = a + 1;
