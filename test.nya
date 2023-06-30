@@ -10,6 +10,7 @@ platform {
 
 fn [stdio] main(): i32 {
 	let mut a = 5;
+	let (b, c, d) = (a, 5, write_num);
 	write_num(a);
 	a = 0;
 	write_num(a);

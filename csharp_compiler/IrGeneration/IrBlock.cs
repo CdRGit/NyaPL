@@ -10,6 +10,14 @@ public class IrBlock {
 	public bool InstructionComplete { get; private set; }
 	public void MarkInstructionComplete() => InstructionComplete = true;
 
+	private Dictionary<string, IrParam.Register> locals = new();
+	public ReadOnlyDictionary<string, IrParam.Register> Locals => locals.AsReadOnly();
+	public void SetLocals(ReadOnlyDictionary<string, IrParam.Register> newLocals) {
+		foreach (var local in newLocals) {
+			locals.Add(local.Key, local.Value);
+		}
+	}
+
 	List<IrInstr> instructions = new();
 	public ReadOnlyCollection<IrInstr> Instructions { get => instructions.AsReadOnly(); }
 	List<IrBlock> incoming = new();

@@ -198,6 +198,7 @@ public class Compiler {
 		}
 
 		labelText.Replace("\n", "\\n");
+
 		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
 		if (node.HasReturn) {
 			writer.WriteLine($"n{node.ID} -> return");
@@ -206,6 +207,17 @@ public class Compiler {
 		foreach (var target in node.Outgoing) {
 			DrawGraph(writer, target.node, functions, intrinsics, explored);
 			writer.WriteLine(@$"n{node.ID} -> n{target.node.ID} [label=""{target.label}""]");
+		}
+
+		StringBuilder localText = new();
+		if (node.Locals.Any()) {
+			foreach (var local in node.Locals) {
+				localText.Append($"{local.Key}: ");
+				PrettyPrint(localText, local.Value, functions, intrinsics);
+				localText.Append("\n");
+			}
+			writer.WriteLine(@$"n_locals{node.ID} [label=""{localText.ToString()}"",shape=""underline""]");
+			writer.WriteLine(@$"n{node.ID} -> n_locals{node.ID} [style=""dashed"",arrowhead=""onormal""]");
 		}
 	}
 

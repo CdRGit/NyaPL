@@ -10,6 +10,8 @@ namespace Nyapl.IrTransformation;
 public class Mem2Reg {
 	private IrInstr? Transform(Context ctx, IrInstr instr) {
 		switch (instr.Kind) {
+			case IrInstr.IrKind.LoadTupleSection:
+			case IrInstr.IrKind.AppendTupleSection:
 			case IrInstr.IrKind.IntLiteral:
 			case IrInstr.IrKind.LoadFunction:
 			case IrInstr.IrKind.LoadIntrinsic:
@@ -69,6 +71,7 @@ public class Mem2Reg {
 		}
 
 		newBlock.MarkInstructionComplete();
+		newBlock.SetLocals(ctx.GetLocals());
 		ctx.ClearLocals();
 
 		foreach(var child in block.Outgoing) {
@@ -113,6 +116,7 @@ public class Mem2Reg {
 		public IrParam.Register GetLocal(IrParam.Local local) {
 			return locals[local.Name];
 		}
+		public ReadOnlyDictionary<string, IrParam.Register> GetLocals() => locals.AsReadOnly();
 
 		private Dictionary<int, IrBlock> replacements = new();
 
