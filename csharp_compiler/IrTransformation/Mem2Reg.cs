@@ -202,6 +202,7 @@ public class Mem2Reg {
 				case IrInstr.IrKind.Equal:
 
 				case IrInstr.IrKind.LoadIntrinsic:
+				case IrInstr.IrKind.LoadFunction:
 				case IrInstr.IrKind.LoadArgument:
 				case IrInstr.IrKind.LoadTupleSection:
 
@@ -209,6 +210,7 @@ public class Mem2Reg {
 				case IrInstr.IrKind.AppendTupleSection:
 
 				case IrInstr.IrKind.CallImpure:
+				case IrInstr.IrKind.Call:
 				case IrInstr.IrKind.Return:
 					replacement.AddInstr(instr);
 					break;
