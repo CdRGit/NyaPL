@@ -8,17 +8,22 @@ platform {
 	}
 }
 
-fn pure(): () {
-	return ();
-}
-
 fn [stdio] main(): i32 {
-	let mut a = 5;
-	pure();
-	write_num(a);
-	while a != 100 {
-		write_num(a * 2);
-		a = a + 1;
+	let mut m = 0;
+	let mut a = false;
+	let b = true;
+	m = 0;
+	if (a) {
+		let throwaway = 0;
+		m = 3;
+		if (b) {
+			m = 1;
+		} else {
+			m = 2;
+			a = true;
+		}
+		m = m * 5;
 	}
-	return 0;
+	let (c, d) = (a, m);
+	return d;
 }

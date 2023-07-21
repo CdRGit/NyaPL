@@ -83,7 +83,7 @@ public class IrGenerator {
 						block.AddInstr(new(
 							IrInstr.IrKind.LoadLocal,
 							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							new IrParam.Local(lookup.Name)
+							new IrParam.Local(lookup.Name, ctx.TypeCtx.GetSize(lookup.Type!))
 						));
 					}
 					return block;
@@ -238,7 +238,7 @@ public class IrGenerator {
 						block.AddInstr(new(
 							IrInstr.IrKind.LoadLocal,
 							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							new IrParam.Local(lookup.Name)
+							new IrParam.Local(lookup.Name, ctx.TypeCtx.GetSize(lookup.Type!))
 						));
 					}
 					return block;
@@ -254,7 +254,7 @@ public class IrGenerator {
 			case NamedLValueNode named: {
 					block.AddInstr(new(
 						IrInstr.IrKind.StoreLocal,
-						new IrParam.Local(named.Name),
+						new IrParam.Local(named.Name, sourceRegister.Size),
 						sourceRegister
 					));
 					return block;
@@ -293,7 +293,7 @@ public class IrGenerator {
 				));
 				block.AddInstr(new(
 					IrInstr.IrKind.StoreLocal,
-					new IrParam.Local(named.Name),
+					new IrParam.Local(named.Name, reg.Size),
 					reg
 				));
 				return block;
@@ -319,7 +319,7 @@ public class IrGenerator {
 				block = Generate(block, ctx, v.Expression);
 				block.AddInstr(new(
 					IrInstr.IrKind.StoreLocal,
-					new IrParam.Local(v.Name),
+					new IrParam.Local(v.Name, ctx.GetPreviousRegister().Size),
 					ctx.GetPreviousRegister()
 				));
 				return block;
@@ -367,9 +367,9 @@ public class IrGenerator {
 				));
 				block.AddConnection(expr);
 				block = expr;
-				var end = ctx.NewBlock();
-				var body = ctx.NewBlock();
 				block = Generate(block, ctx, w.Expr);
+				var body = ctx.NewBlock();
+				var end = ctx.NewBlock();
 				block.AddInstr(new(
 					IrInstr.IrKind.BranchBool,
 					ctx.GetPreviousRegister(),
@@ -422,9 +422,12 @@ public class IrGenerator {
 	}
 
 	private IrBlock Generate(IrBlock block, Context ctx, IfStatementNode @if) {
-		var end = ctx.NewBlock();
-		var next = @if.Elifs.Count > 0 || @if.Else != null ? ctx.NewBlock() : end;
 		var body = ctx.NewBlock();
+		var othersIdx = 0;
+		var others = Enumerable.Range(0, @if.Elifs.Count * 2 + (@if.Else != null ? 1 : 0)).Select(f => ctx.NewBlock()).ToList();
+		var end = ctx.NewBlock();
+		others.Add(end);
+		var next = others[othersIdx++];
 		// IF
 		block = Generate(block, ctx, @if.IfExpr);
 		var exprReg = ctx.GetPreviousRegister();
@@ -450,8 +453,8 @@ public class IrGenerator {
 			block = next;
 			// elif expr is in block
 			block = Generate(block, ctx, e.Expr);
-			next = @if.Elifs.Count > i + 1 || @if.Else != null ? ctx.NewBlock() : end;
-			body = ctx.NewBlock();
+			body = others[othersIdx++];
+			next = others[othersIdx++];
 			exprReg = ctx.GetPreviousRegister();
 			block.AddInstr(new(
 				IrInstr.IrKind.BranchBool,
@@ -497,7 +500,7 @@ public class IrGenerator {
 			));
 			block.AddInstr(new(
 				IrInstr.IrKind.StoreLocal,
-				new IrParam.Local(param.Name),
+				new IrParam.Local(param.Name, ctx.GetPreviousRegister().Size),
 				ctx.GetPreviousRegister()
 			));
 		}
@@ -519,7 +522,7 @@ public class IrGenerator {
 			functions[function.Name] = block;
 		}
 
-		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly());
+		return new(file.Platform, ctx.GetBlocks(), functions.AsReadOnly(), ctx.RegisterCount);
 	}
 
 	private class Context {
@@ -549,6 +552,7 @@ public class IrGenerator {
 
 
 		private uint currentRegister = 0;
+		public uint RegisterCount { get => currentRegister; }
 		private IrParam.Register? previousRegister;
 
 		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);

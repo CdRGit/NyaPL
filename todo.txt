@@ -1,0 +1,12 @@
+There are definitions of m in 0, 3, 4, and 5. That means we need to place PHIs at DF+({0, 3, 4, 5}), where DF+ is the iterated dominance frontier of those blocks. The iterated dominance frontier is the transitive closure of the DF; this means that it is the union of the DFs of all of those blocks and all blocks in the DFs of their DFs and so on. Basically, you compute the DFs of all of those blocks; the result of that computation is another set of blocks. You add all of those blocks back to the starting set, and you keep going until nothing changes.
+
+So, in this case, 
+DF(0) is {}, because 0 dominates everything.
+DF(3) is its successors, i.e. {5}, because 3 dominates nothing.
+DF(4) is also {5} for the same reason.
+DF(5) is {2} because it also dominates nothing.
+
+Then, you take all of those into a result set R = DF(0) ∪ DF(3) ∪ DF(4) ∪ DF(5) = {5, 2} (it’s a set, so we don’t add the same element twice). Next, we compute the DF of all blocks in R and add the results to R, until R no longer changes. In this case, 
+we’ve already computed the DF of 5 and added it to R in the previous step, so nothing to do there.
+DF(2) is {}, because it’s an exit block.
+Thus, adding those to R yields {5, 2}. Nothing has changed, so we’re done. That means we need to insert PHIs at 5 and 2. 

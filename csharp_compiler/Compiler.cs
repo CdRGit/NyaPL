@@ -18,6 +18,7 @@ using Nyapl.Typing;
 using Nyapl.FlowAnalysis;
 
 using Nyapl.IrGeneration;
+using Nyapl.IrTransformation;
 
 namespace Nyapl;
 
@@ -30,6 +31,7 @@ public class Compiler {
 	private TypeChecker  typeChecker  = new();
 	private FlowAnalyzer flowAnalyzer = new();
 	private IrGenerator  irGenerator  = new();
+	private Mem2Reg      mem2reg      = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles      = new();
@@ -39,6 +41,7 @@ public class Compiler {
 	private Dictionary<string, TypedFileNode>      typedFiles     = new();
 	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
 	private Dictionary<string, IrResult>           generatedFiles = new();
+	private Dictionary<string, IrResult>           mem2regFiles   = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -58,8 +61,11 @@ public class Compiler {
 
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
+			case IrParam.Block b:
+				builder.Append($"block.{b.Blk.ID}");
+				break;
 			case IrParam.Local l:
-				builder.Append($"local[{l.Name}]");
+				builder.Append($"local[{l.Name}:{l.Size:D2}]");
 				break;
 			case IrParam.Int i:
 				builder.Append($"{i.Value}");
@@ -103,6 +109,17 @@ public class Compiler {
 			{IrInstr.IrKind.NotEq,    "!="},
 		};
 		switch (instr.Kind) {
+			case IrInstr.IrKind.Phi:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- Φ [");
+				for (int i = 1; i < instr.Params.Length; i += 2) {
+					builder.Append(i == 1 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+					builder.Append(": ");
+					PrettyPrint(builder, instr[i+1]!, functions, intrinsics);
+				}
+				builder.Append("]\n");
+				break;
 			case IrInstr.IrKind.BranchAlways:
 				builder.Append("br\n");
 				break;
@@ -195,7 +212,8 @@ public class Compiler {
 		}
 
 		labelText.Replace("\n", "\\n");
-		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}"",xlabel=""{node.ID}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
 		if (node.HasReturn) {
 			writer.WriteLine($"n{node.ID} -> return");
 		}
@@ -203,6 +221,22 @@ public class Compiler {
 		foreach (var target in node.Outgoing) {
 			DrawGraph(writer, target.node, functions, intrinsics, explored);
 			writer.WriteLine(@$"n{node.ID} -> n{target.node.ID} [label=""{target.label}""]");
+		}
+
+		StringBuilder localText = new();
+		if (node.Locals.Any()) {
+			foreach (var local in node.Locals) {
+				localText.Append($"{local.Key}: ");
+				PrettyPrint(localText, local.Value, functions, intrinsics);
+				localText.Append("\n");
+			}
+			writer.WriteLine(@$"n_locals{node.ID} [label=""{localText.ToString()}"",shape=""underline""]");
+			writer.WriteLine(@$"n{node.ID} -> n_locals{node.ID} [style=""dashed"",arrowhead=""onormal""]");
+		}
+		if (node.Frontier.Any()) {
+			var frontierText = string.Join(", ", node.Frontier.Select(b => b.ID));
+			writer.WriteLine(@$"n_frontier{node.ID} [label=""{frontierText.ToString()}"",shape=""insulator""]");
+			writer.WriteLine(@$"n{node.ID} -> n_frontier{node.ID} [style=""dashed"",arrowhead=""onormal""]");
 		}
 	}
 
@@ -238,7 +272,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetIR(file);
+		IrResult instructions = GetMem2RegIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -323,4 +357,7 @@ public class Compiler {
 
 	public IrResult GetIR(string file) =>
 		Memoize(file, generatedFiles, f => irGenerator.Generate(GetAnalyzedAST(f)));
+
+	public IrResult GetMem2RegIR(string file) =>
+		Memoize(file, mem2regFiles, f => mem2reg.Transform(GetIR(f)));
 }
