@@ -8,170 +8,244 @@ using Nyapl.IrGeneration;
 namespace Nyapl.IrTransformation;
 
 public class Mem2Reg {
-	private IrInstr? Transform(Context ctx, IrInstr instr) {
-		switch (instr.Kind) {
-			case IrInstr.IrKind.LoadTupleSection:
-			case IrInstr.IrKind.AppendTupleSection:
-			case IrInstr.IrKind.IntLiteral:
-			case IrInstr.IrKind.LoadFunction:
-			case IrInstr.IrKind.LoadIntrinsic:
-			case IrInstr.IrKind.StoreParam:
-			case IrInstr.IrKind.LoadArgument:
-			case IrInstr.IrKind.Add:
-			case IrInstr.IrKind.Multiply:
-			case IrInstr.IrKind.NotEq:
-			case IrInstr.IrKind.Call:
-			case IrInstr.IrKind.CallImpure:
-			case IrInstr.IrKind.Return:
-				return instr;
-			case IrInstr.IrKind.LoadLocal:
-				if (ctx.HasLocal((instr[1] as IrParam.Local)!)) {
-					var newInstr = new IrInstr(
-						IrInstr.IrKind.Copy,
-						instr[0],
-						ctx.GetLocal((instr[1] as IrParam.Local)!)
-					);
-					return newInstr;
+	private ReadOnlyDictionary<int, ReadOnlyCollection<IrBlock>> CalculateFrontiers(IrBlock entry, ReadOnlyCollection<IrBlock> nodes) {
+		Dictionary<int, IrBlock> dominators = new();
+		IrBlock Intersect(IrBlock b1, IrBlock b2) {
+			IrBlock finger1 = b1;
+			IrBlock finger2 = b2;
+			while (finger1.ID != finger2.ID) {
+				while (finger1.ID > finger2.ID) {
+					finger1 = dominators[finger1.ID];
 				}
-				else {
-					ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
-					return instr;
+				while (finger2.ID > finger1.ID) {
+					finger2 = dominators[finger2.ID];
 				}
-			case IrInstr.IrKind.StoreLocal:
-				ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
-				return null;
-			case IrInstr.IrKind.BranchAlways: {
-					var newInstr = new IrInstr(
-						IrInstr.IrKind.BranchAlways,
-						new IrParam.Block(ctx.Replace((instr[0] as IrParam.Block)!.Blk))
-					);
-					return newInstr;
+			}
+			return finger1;
+		}
+
+		dominators[entry.ID] = entry;
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			foreach (var node in nodes) {
+				if (node == entry) continue; // skip entry
+				IrBlock new_idom = node.Incoming.Where(p => dominators.ContainsKey(p.ID)).First();
+				foreach (var p in node.Incoming) {
+					if (p == new_idom) continue; // skip the first one we already have
+					if (dominators.ContainsKey(p.ID)) {
+						new_idom = Intersect(p, new_idom);
+					}
 				}
-			case IrInstr.IrKind.BranchBool: {
-					var newInstr = new IrInstr(
-						IrInstr.IrKind.BranchBool,
+				if (!dominators.ContainsKey(node.ID) || dominators[node.ID] != new_idom) {
+					dominators[node.ID] = new_idom;
+					changed = true;
+				}
+			}
+		}
+
+		var frontiers = new Dictionary<int, List<IrBlock>>();
+
+		foreach (var b in nodes) {
+			frontiers[b.ID] = new();
+		}
+
+		foreach (var b in nodes) {
+			if (b.Incoming.Count >= 2) {
+				foreach (var p in b.Incoming) {
+					var runner = p;
+					while (runner != dominators[b.ID]) {
+						frontiers[runner.ID].Add(b);
+						runner = dominators[runner.ID];
+					}
+				}
+			}
+		}
+
+		foreach (var b in nodes) {
+			b.Frontier = frontiers[b.ID].AsReadOnly();
+		}
+
+		return frontiers.ToDictionary(p => p.Key, p => p.Value.AsReadOnly()).AsReadOnly();
+	}
+
+	private ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> CalculateVariables(ReadOnlyCollection<IrBlock> nodes) {
+		var variables = new Dictionary<string, (ushort, List<(IrBlock, IrParam.Register)>)>();
+
+		foreach (var b in nodes) {
+			foreach (var instr in b.Instructions) {
+				if (instr.Kind == IrInstr.IrKind.StoreLocal) {
+					var name = (instr[0] as IrParam.Local)!.Name;
+
+					if (!variables.ContainsKey(name))
+						variables[name] = ((instr[0] as IrParam.Local)!.Size, new());
+
+					var idx = variables[name].Item2.IndexOf(variables[name].Item2.FirstOrDefault(blk => blk.Item1 == b));
+
+					if (idx == -1)
+						variables[name].Item2.Add((b, (instr[1] as IrParam.Register)!));
+					else
+						variables[name].Item2[idx] = (b, (instr[1] as IrParam.Register)!);
+				}
+			}
+		}
+
+		return variables.ToDictionary(p => p.Key, p => (p.Value.Item1, p.Value.Item2.DistinctBy(b => b.Item1).ToList().AsReadOnly())).AsReadOnly();
+	}
+
+	private ReadOnlyCollection<IrBlock> CalculateRequiredPhiFunctions(
+		ReadOnlyCollection<IrBlock> nodes,
+		ReadOnlyDictionary<int, ReadOnlyCollection<IrBlock>> frontiers,
+		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
+		string variable
+	) {
+		// calculate DF+
+		var iteratedDominanceFrontier = new HashSet<IrBlock>();
+		var prevCount = iteratedDominanceFrontier.Count;
+
+		do {
+			prevCount = iteratedDominanceFrontier.Count;
+			foreach (var decl in variableDeclarations[variable].Item2) {
+				iteratedDominanceFrontier.UnionWith(frontiers[decl.Item1.ID]);
+			}
+			foreach (var b in iteratedDominanceFrontier.ToList()) {
+				iteratedDominanceFrontier.UnionWith(frontiers[b.ID]);
+			}
+		}
+		while (prevCount != iteratedDominanceFrontier.Count);
+		Console.WriteLine($"DF+[{variable}]");
+		foreach (var b in iteratedDominanceFrontier) {
+			Console.WriteLine($" {b.ID}");
+		}
+
+		return iteratedDominanceFrontier.ToList().AsReadOnly();
+	}
+
+	private ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> PropagateVariables(
+		ReadOnlyCollection<IrBlock> nodes,
+		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
+		ReadOnlyCollection<(string Key, ReadOnlyCollection<(IrBlock b, IrParam.Register reg)> Value)> phiFunctions,
+		IrBlock entry
+	) {
+		var propagated = new Dictionary<string, (ushort, List<(IrBlock, IrParam.Register)>)>();
+
+		foreach (var p in variableDeclarations)
+			propagated.Add(p.Key, (p.Value.Item1, p.Value.Item2.ToList()));
+
+		foreach (var phi in phiFunctions) {
+			Console.WriteLine(phi);
+			foreach (var p in phi.Value) {
+				if (!propagated[phi.Key].Item2.Any(pair => pair.Item1.ID == p.b.ID))
+					propagated[phi.Key].Item2.Add(p);
+			}
+		}
+
+		// propagated is filled with all the defined values now, time to propagate
+		HashSet<IrBlock> done = new();
+		Queue<IrBlock> next = new();
+		next.Enqueue(entry);
+		while (next.Count != 0) {
+			var current = next.Dequeue();
+			if (done.Contains(current)) continue; // skip repeats
+			done.Add(current);
+
+			foreach (var downstream in current.Outgoing.Select(p => p.node)) {
+				foreach (var variable in propagated.Keys) {
+					// propagate this variable from here
+					if (propagated[variable].Item2.Any(p => p.Item1.ID == downstream.ID)) continue; // variable already exists
+					if (!propagated[variable].Item2.Any(p => p.Item1.ID == current.ID)) continue;   // we do not have this variable, out of scope
+					propagated[variable].Item2.Add((downstream, propagated[variable].Item2.First(p => p.Item1.ID == current.ID).Item2));
+				}
+				next.Enqueue(downstream);
+			}
+		}
+
+		return propagated.ToDictionary(p => p.Key, p => (p.Value.Item1, p.Value.Item2.DistinctBy(b => b.Item1).ToList().AsReadOnly())).AsReadOnly();
+	}
+
+	private IrBlock Transform(
+		Context ctx,
+		IrBlock node,
+		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> propagatedVariables,
+		ReadOnlyCollection<(string Key, ReadOnlyCollection<(IrBlock b, IrParam.Register reg)> Value)> phiFunctions
+	) {
+		if (ctx.Transformed(node)) return ctx.Replace(node); // early return for already processed nodes
+
+		IrBlock replacement = ctx.Replace(node);
+
+		// add phi functions
+		foreach (var phi in phiFunctions) {
+			foreach (var pair in phi.Value) {
+				if (pair.b.ID == node.ID) {
+					// relevant for us
+					// the register was already chosen
+					ctx.SetLocal(new (phi.Key, pair.reg.Size), pair.reg);
+					List<IrParam> arguments = new();
+					arguments.Add(pair.reg);
+					foreach (var i in node.Incoming) {
+						arguments.Add(new IrParam.Block(i));
+						arguments.Add(propagatedVariables[phi.Key].Item2.First(p => p.Item1.ID == i.ID).Item2);
+					}
+					replacement.AddInstr(new(IrInstr.IrKind.Phi, arguments.ToArray()));
+				}
+			}
+		}
+
+		foreach (var instr in node.Instructions) {
+			switch (instr.Kind) {
+				case IrInstr.IrKind.IntLiteral:
+				case IrInstr.IrKind.BoolLiteral:
+
+				case IrInstr.IrKind.Multiply:
+
+				case IrInstr.IrKind.LoadIntrinsic:
+				case IrInstr.IrKind.LoadArgument:
+				case IrInstr.IrKind.LoadTupleSection:
+
+				case IrInstr.IrKind.StoreParam:
+				case IrInstr.IrKind.AppendTupleSection:
+
+				case IrInstr.IrKind.CallImpure:
+				case IrInstr.IrKind.Return:
+					replacement.AddInstr(instr);
+					break;
+
+				case IrInstr.IrKind.BranchBool:
+					replacement.AddInstr(new(IrInstr.IrKind.BranchBool,
 						instr[0],
 						new IrParam.Block(ctx.Replace((instr[1] as IrParam.Block)!.Blk)),
-						new IrParam.Block(ctx.Replace((instr[2] as IrParam.Block)!.Blk))
+						new IrParam.Block(ctx.Replace((instr[2] as IrParam.Block)!.Blk)))
 					);
-					return newInstr;
-				}
-			default:
-				throw new Exception($"Transform(Context, IrInstr {instr}) not implemented yet");
-		}
-	}
+					break;
 
-	private IrBlock Transform(Context ctx, IrBlock block, IrBlock newBlock) {
-		if (!newBlock.InstructionComplete) {
-			foreach (var instr in block.Instructions) {
-				var newInstr = Transform(ctx, instr);
-				if (newInstr.HasValue)
-					newBlock.AddInstr(newInstr.Value);
-			}
-		}
-
-		newBlock.MarkInstructionComplete();
-		newBlock.SetLocals(ctx.GetLocals());
-		ctx.ClearLocals();
-
-		foreach(var child in block.Outgoing) {
-			if (!newBlock.Outgoing.Any(b => b.node.ID == child.node.ID && b.label == child.label)) {
-				IrBlock newChild = ctx.Replace(child.node);
-				newBlock.AddConnection(newChild, child.label);
-				Transform(ctx, child.node, newChild);
-			}
-		}
-
-		return newBlock;
-	}
-
-	private IrInstr? Cleanup(Context ctx, IrInstr instr, IrBlock block) {
-		switch (instr.Kind) {
-			case IrInstr.IrKind.LoadTupleSection:
-			case IrInstr.IrKind.AppendTupleSection:
-			case IrInstr.IrKind.Copy:
-			case IrInstr.IrKind.IntLiteral:
-			case IrInstr.IrKind.LoadFunction:
-			case IrInstr.IrKind.LoadIntrinsic:
-			case IrInstr.IrKind.StoreParam:
-			case IrInstr.IrKind.LoadArgument:
-			case IrInstr.IrKind.Add:
-			case IrInstr.IrKind.Multiply:
-			case IrInstr.IrKind.NotEq:
-			case IrInstr.IrKind.Call:
-			case IrInstr.IrKind.CallImpure:
-			case IrInstr.IrKind.Return:
-				return instr;
-			case IrInstr.IrKind.LoadLocal:
-				{
-					var incomingVals = block.Incoming.SelectMany(i => i.GetLocal((instr[1] as IrParam.Local)!).Select(r => (i, r))).ToList().AsReadOnly();
-
-					foreach (var incoming in incomingVals) {
-						Console.WriteLine($"{incoming}");
-					}
-
-					if (incomingVals.Count == 1) {
-						ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
-						return new(
-							IrInstr.IrKind.Copy,
-							instr[0]!,
-							incomingVals.First().Item2
-						);
-					} else {
-						ctx.SetLocal((instr[1] as IrParam.Local)!, (instr[0] as IrParam.Register)!);
-						var phi = incomingVals.SelectMany(v => new IrParam[] {new IrParam.Block(v.Item1), v.Item2});
-						return new(
-							IrInstr.IrKind.Phi, new[] {instr[0]!}.Concat(phi).ToArray()
-						);
-					}
-					return instr;
-				}
-			case IrInstr.IrKind.StoreLocal:
-				ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
-				return null;
-			case IrInstr.IrKind.BranchAlways: {
-					var newInstr = new IrInstr(
-						IrInstr.IrKind.BranchAlways,
+				case IrInstr.IrKind.BranchAlways:
+					replacement.AddInstr(new(IrInstr.IrKind.BranchAlways,
 						new IrParam.Block(ctx.Replace((instr[0] as IrParam.Block)!.Blk))
-					);
-					return newInstr;
-				}
-			case IrInstr.IrKind.BranchBool: {
-					var newInstr = new IrInstr(
-						IrInstr.IrKind.BranchBool,
-						instr[0],
-						new IrParam.Block(ctx.Replace((instr[1] as IrParam.Block)!.Blk)),
-						new IrParam.Block(ctx.Replace((instr[2] as IrParam.Block)!.Blk))
-					);
-					return newInstr;
-				}
-			default:
-				throw new Exception($"Cleanup(Context, IrInstr {instr}, IrBlock) not implemented yet");
-		}
-	}
+						));
+					break;
 
-	private IrBlock Cleanup(Context ctx, IrBlock block, IrBlock newBlock) {
-		if (!newBlock.InstructionComplete) {
-			foreach (var instr in block.Instructions) {
-				var newInstr = Cleanup(ctx, instr, block);
-				if (newInstr.HasValue)
-					newBlock.AddInstr(newInstr.Value);
+				case IrInstr.IrKind.LoadLocal:
+					var reg = ctx.GetLocal((instr[1] as IrParam.Local)!);
+					replacement.AddInstr(new(IrInstr.IrKind.Copy, instr[0], reg));
+					break;
+
+				case IrInstr.IrKind.StoreLocal:
+					ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
+					break;
+
+				default:
+					throw new Exception($"Transforming {instr} not supported yet");
 			}
 		}
 
-		newBlock.MarkInstructionComplete();
-		newBlock.SetLocals(ctx.GetLocals());
-		ctx.ClearLocals();
+		ctx.MarkTransformed(node);
 
-		foreach (var child in block.Outgoing) {
-			if (!newBlock.Outgoing.Any(b => b.node.ID == child.node.ID && b.label == child.label)) {
-				IrBlock newChild = ctx.Replace(child.node);
-				newBlock.AddConnection(newChild, child.label);
-				Cleanup(ctx, child.node, newChild);
-			}
+		foreach (var connection in node.Outgoing) {
+			replacement.AddConnection(Transform(ctx, connection.node, propagatedVariables, phiFunctions), connection.label);
 		}
 
-		return newBlock;
+
+		return replacement;
 	}
 
 	public IrResult Transform(IrResult lastPass) {
@@ -179,27 +253,56 @@ public class Mem2Reg {
 
 		var functions = new Dictionary<string, IrBlock>();
 
-		// transform all the functions
-		foreach (var function in lastPass.Functions) {
-			ctx.ClearLocals();
-			var newBlock = ctx.Replace(function.Value);
-			functions[function.Key] = newBlock;
-			Transform(ctx, function.Value, newBlock);
+		foreach (var fn in lastPass.Functions) {
+			var nodes = new List<IrBlock>();
+			var todo = new Queue<IrBlock>();
+			nodes.Add(fn.Value);
+			todo.Enqueue(fn.Value);
+			while (todo.Count != 0) {
+				var current = todo.Dequeue();
+				foreach (var child in current.Outgoing.Select(p => p.node)) {
+					if (!nodes.Contains(child)) {
+						todo.Enqueue(child);
+						nodes.Add(child);
+					}
+				}
+			}
+			var frontiers = CalculateFrontiers(fn.Value, nodes.AsReadOnly());
+			var variableDeclarations = CalculateVariables(nodes.AsReadOnly());
+
+			var phiFunctions = variableDeclarations
+				.Where(v => v.Value.Item2.Count != 1)
+				.Select(v => (v.Key, CalculateRequiredPhiFunctions(nodes.AsReadOnly(), frontiers, variableDeclarations, v.Key)
+					.Select(b => (b, reg: ctx.GetNewRegister(v.Value.Item1))).ToList().AsReadOnly())
+				)
+				.ToList().AsReadOnly();
+			foreach (var p in phiFunctions) {
+				Console.WriteLine($"Φ({p.Item1}) [{string.Join(", ", p.Item2.Select(p => (p.b.ID, p.reg)))}]");
+			}
+			foreach (var v in variableDeclarations) {
+				Console.WriteLine($"{v.Key} declared in [{string.Join(", ", v.Value.Item2.Select(n => (n.Item1.ID, n.Item2)))}]");
+			}
+
+			var propagatedVariables = PropagateVariables(nodes.AsReadOnly(), variableDeclarations, phiFunctions, fn.Value);
+			foreach (var v in propagatedVariables) {
+				Console.WriteLine($"{v.Key} propagated into [{string.Join(", ", v.Value.Item2.Select(n => (n.Item1.ID, n.Item2)))}]");
+			}
+
+			/*
+			var locals = propagatedVariables.SelectMany(p => p.Value.Item2.Select(v => (v, p.Key))).GroupBy(
+				s => s.Item1.Item1,
+				s => (s.Item2, s.Item1.Item2),
+				(k, v) => (k, v: v.ToDictionary(p => p.Item1, p => p.Item2).AsReadOnly())
+			).ToList().AsReadOnly();
+			foreach (var l in locals) {
+				l.k.SetLocals(l.v);
+			}
+			*/
+
+			functions[fn.Key] = Transform(ctx, fn.Value, propagatedVariables, phiFunctions);
 		}
 
-		var blocks = ctx.GetBlocks();
-		ctx.ClearBlocks();
-
-		var functionsCopy = functions;
-		functions = new();
-
-		foreach (var function in functionsCopy) {
-			var newBlock = ctx.Replace(function.Value);
-			functions[function.Key] = newBlock;
-			Cleanup(ctx, function.Value, newBlock);
-		}
-
-		return new(lastPass.Platform, ctx.GetBlocks(), functions.AsReadOnly(), ctx.UsedRegisters);
+		return new(lastPass.Platform, lastPass.Blocks, functions.AsReadOnly(), /*.Select(p => (p.Key, ctx.Replace(p.Value))).ToDictionary(p => p.Item1, p => p.Item2).AsReadOnly(),*/ ctx.UsedRegisters);
 	}
 
 	private class Context {
@@ -231,10 +334,18 @@ public class Mem2Reg {
 			return replacements.ContainsKey(previous.ID);
 		}
 
+		private HashSet<int> transformed = new();
+		public void MarkTransformed(IrBlock block) => transformed.Add(block.ID);
+		public bool Transformed(IrBlock block) => transformed.Contains(block.ID);
+
 		public void ClearBlocks() => replacements = new();
 
 		public ReadOnlyCollection<IrBlock> GetBlocks() => replacements.Values.ToList().AsReadOnly();
 
 		public uint UsedRegisters { get; private set; }
+		private IrParam.Register? previousRegister;
+
+		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, UsedRegisters++);
+		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 	}
 }

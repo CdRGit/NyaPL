@@ -9,14 +9,21 @@ platform {
 }
 
 fn [stdio] main(): i32 {
-	let mut a = 5;
-	let (b, c, d) = (a, 5, write_num);
-	write_num(a);
-	a = 0;
-	write_num(a);
-	while a != 100 {
-		write_num(a * b);
-		a = a + 1;
+	let mut m = 0;
+	let mut a = false;
+	let b = true;
+	m = 0;
+	if (a) {
+		let throwaway = 0;
+		m = 3;
+		if (b) {
+			m = 1;
+		} else {
+			m = 2;
+			a = true;
+		}
+		m = m * 5;
 	}
-	return 0;
+	let (c, d) = (a, m);
+	return d;
 }

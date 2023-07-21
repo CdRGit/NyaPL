@@ -65,7 +65,7 @@ public class Compiler {
 				builder.Append($"block.{b.Blk.ID}");
 				break;
 			case IrParam.Local l:
-				builder.Append($"local[{l.Name}]");
+				builder.Append($"local[{l.Name}:{l.Size:D2}]");
 				break;
 			case IrParam.Int i:
 				builder.Append($"{i.Value}");
@@ -232,6 +232,11 @@ public class Compiler {
 			}
 			writer.WriteLine(@$"n_locals{node.ID} [label=""{localText.ToString()}"",shape=""underline""]");
 			writer.WriteLine(@$"n{node.ID} -> n_locals{node.ID} [style=""dashed"",arrowhead=""onormal""]");
+		}
+		if (node.Frontier.Any()) {
+			var frontierText = string.Join(", ", node.Frontier.Select(b => b.ID));
+			writer.WriteLine(@$"n_frontier{node.ID} [label=""{frontierText.ToString()}"",shape=""insulator""]");
+			writer.WriteLine(@$"n{node.ID} -> n_frontier{node.ID} [style=""dashed"",arrowhead=""onormal""]");
 		}
 	}
 

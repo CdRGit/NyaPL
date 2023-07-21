@@ -58,10 +58,12 @@ public readonly struct IrInstr {
 public abstract class IrParam {
 	public class Local : IrParam {
 		public string Name { get; }
-		public Local(string name) {
+		public ushort Size { get; }
+		public Local(string name, ushort size) {
 			Name = name;
+			Size = size;
 		}
-		public override string ToString() => $"Local({Name})";
+		public override string ToString() => $"Local({Size}, {Name})";
 	}
 	public class Register : IrParam {
 		public ushort Size { get; }

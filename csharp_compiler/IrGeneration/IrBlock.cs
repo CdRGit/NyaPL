@@ -37,6 +37,12 @@ public class IrBlock {
 	public IrBlock(int id) {
 		ID = id;
 		hasReturn = false;
+		Frontier = new List<IrBlock>().AsReadOnly();
+	}
+
+	public ReadOnlyCollection<IrBlock> Frontier {
+		get;
+		set;
 	}
 
 	public void AddInstr(IrInstr instruction) {
