@@ -196,7 +196,10 @@ public class Mem2Reg {
 				case IrInstr.IrKind.IntLiteral:
 				case IrInstr.IrKind.BoolLiteral:
 
+				case IrInstr.IrKind.Add:
 				case IrInstr.IrKind.Multiply:
+				case IrInstr.IrKind.NotEq:
+				case IrInstr.IrKind.Equal:
 
 				case IrInstr.IrKind.LoadIntrinsic:
 				case IrInstr.IrKind.LoadArgument:
