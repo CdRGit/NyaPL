@@ -241,7 +241,7 @@ public class Compiler {
 	}
 
 	private void DrawGraph(string funcName, IrBlock body, string[] functions, string[] intrinsics) {
-		string path = $"debug/flowgraph/{funcName}";
+		string path = $"debug/flowgraph/{funcName.Replace("/", "-")}";
 		using (StreamWriter writer = new($"{path}.dot")) {
 			var explored = new HashSet<IrBlock>();
 			writer.WriteLine("digraph {");
