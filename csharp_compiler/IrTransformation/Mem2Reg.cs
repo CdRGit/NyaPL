@@ -293,21 +293,10 @@ public class Mem2Reg {
 				Console.WriteLine($"{v.Key} propagated into [{string.Join(", ", v.Value.Item2.Select(n => (n.Item1.ID, n.Item2)))}]");
 			}
 
-			/*
-			var locals = propagatedVariables.SelectMany(p => p.Value.Item2.Select(v => (v, p.Key))).GroupBy(
-				s => s.Item1.Item1,
-				s => (s.Item2, s.Item1.Item2),
-				(k, v) => (k, v: v.ToDictionary(p => p.Item1, p => p.Item2).AsReadOnly())
-			).ToList().AsReadOnly();
-			foreach (var l in locals) {
-				l.k.SetLocals(l.v);
-			}
-			*/
-
 			functions[fn.Key] = Transform(ctx, fn.Value, propagatedVariables, phiFunctions);
 		}
 
-		return new(lastPass.Platform, lastPass.Blocks, functions.AsReadOnly(), /*.Select(p => (p.Key, ctx.Replace(p.Value))).ToDictionary(p => p.Item1, p => p.Item2).AsReadOnly(),*/ ctx.UsedRegisters);
+		return new(lastPass.Platform, lastPass.Blocks, functions.AsReadOnly(), ctx.UsedRegisters);
 	}
 
 	private class Context {
