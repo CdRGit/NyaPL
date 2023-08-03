@@ -59,6 +59,17 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
+	readonly static Dictionary<IrParam.IntrinsicOp.OpKind, string> intrinsicOps = new() {
+		{IrParam.IntrinsicOp.OpKind.Multiply, "multiply"},
+		{IrParam.IntrinsicOp.OpKind.Divide,   "divide"},
+		{IrParam.IntrinsicOp.OpKind.Modulo,   "modulo"},
+
+		{IrParam.IntrinsicOp.OpKind.Add,      "add"},
+		{IrParam.IntrinsicOp.OpKind.Subtract, "subtract"},
+
+		{IrParam.IntrinsicOp.OpKind.Equal,    "equal"},
+		{IrParam.IntrinsicOp.OpKind.NotEq,    "not_equal"},
+	};
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
 			case IrParam.Block b:
@@ -82,17 +93,14 @@ public class Compiler {
 			case IrParam.Intrinsic i:
 				builder.Append($"intrinsic:{intrinsics[i.Index]}");
 				break;
-			case IrParam.Parameter p:
-				builder.Append($"p{p.Index:D2}:{p.Size:D2}");
-				break;
-			case IrParam.Argument a:
-				builder.Append($"a{a.Index:D2}:{a.Size:D2}");
-				break;
 			case IrParam.Count c:
 				builder.Append($"{c.Value}");
 				break;
 			case IrParam.Offset o:
 				builder.Append($"{o.Value}");
+				break;
+			case IrParam.IntrinsicOp i:
+				builder.Append($"intrinsic:{intrinsicOps[i.Kind]}");
 				break;
 			default:
 				throw new Exception($"PrettyPrint not implemented yet for IrParam of type {param.GetType().Name}");
@@ -100,14 +108,6 @@ public class Compiler {
 	}
 
 	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
-		Dictionary<IrInstr.IrKind, string> operators = new() {
-			{IrInstr.IrKind.Subtract, "-"},
-			{IrInstr.IrKind.Add,      "+"},
-			{IrInstr.IrKind.Multiply, "*"},
-			{IrInstr.IrKind.Modulo,   "%"},
-			{IrInstr.IrKind.Equal,    "=="},
-			{IrInstr.IrKind.NotEq,    "!="},
-		};
 		switch (instr.Kind) {
 			case IrInstr.IrKind.Phi:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
@@ -128,17 +128,11 @@ public class Compiler {
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("?\n");
 				break;
-			case IrInstr.IrKind.EmptyTuple:
-				PrettyPrint(builder, instr[0]!, functions, intrinsics);
-				builder.Append(" <- ()\n");
-				break;
 			case IrInstr.IrKind.IntLiteral:
 			case IrInstr.IrKind.BoolLiteral:
 			case IrInstr.IrKind.LoadFunction:
 			case IrInstr.IrKind.LoadIntrinsic:
 			case IrInstr.IrKind.Copy:
-			case IrInstr.IrKind.StoreParam:
-			case IrInstr.IrKind.LoadArgument:
 			case IrInstr.IrKind.StoreLocal:
 			case IrInstr.IrKind.LoadLocal:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
@@ -146,12 +140,26 @@ public class Compiler {
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
+			case IrInstr.IrKind.IntrinsicImpure:
+				PrettyPrint(builder, instr[0]!, functions, intrinsics);
+				builder.Append(" <- ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("[impure](");
+				for (int i = 2; i < instr.Params.Length; i ++) {
+					builder.Append(i == 2 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+				}
+				builder.Append(")\n");
+				break;
 			case IrInstr.IrKind.CallImpure:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
 				builder.Append("[impure](");
-				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				for (int i = 2; i < instr.Params.Length; i ++) {
+					builder.Append(i == 2 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+				}
 				builder.Append(")\n");
 				break;
 			case IrInstr.IrKind.Call:
@@ -159,7 +167,10 @@ public class Compiler {
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
 				builder.Append("(");
-				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				for (int i = 2; i < instr.Params.Length; i ++) {
+					builder.Append(i == 2 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+				}
 				builder.Append(")\n");
 				break;
 			case IrInstr.IrKind.Return:
@@ -175,26 +186,35 @@ public class Compiler {
 				PrettyPrint(builder, instr[2]!, functions, intrinsics);
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.AppendTupleSection:
+			case IrInstr.IrKind.CreateTuple:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
-				builder.Append(" <- ");
-				PrettyPrint(builder, instr[1]!, functions, intrinsics);
-				builder.Append($" ... ");
-				PrettyPrint(builder, instr[2]!, functions, intrinsics);
-				builder.Append("\n");
+				builder.Append(" <- (");
+				for (int i = 1; i < instr.Params.Length; i += 2) {
+					builder.Append(i == 1 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+					builder.Append(": ");
+					PrettyPrint(builder, instr[i+1]!, functions, intrinsics);
+				}
+				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.Add:
-			case IrInstr.IrKind.Subtract:
-			case IrInstr.IrKind.Multiply:
-			case IrInstr.IrKind.Modulo:
-			case IrInstr.IrKind.Equal:
-			case IrInstr.IrKind.NotEq:
+			case IrInstr.IrKind.Intrinsic:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
-				builder.Append($" {operators[instr.Kind]} ");
-				PrettyPrint(builder, instr[2]!, functions, intrinsics);
-				builder.Append("\n");
+				builder.Append("(");
+				for (int i = 2; i < instr.Params.Length; i++) {
+					builder.Append(i == 2 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+				}
+				builder.Append(")\n");
+				break;
+			case IrInstr.IrKind.LoadArguments:
+				builder.Append("load arguments: (");
+				for (int i = 0; i < instr.Params.Length; i++) {
+					builder.Append(i == 0 ? "" : ", ");
+					PrettyPrint(builder, instr[i]!, functions, intrinsics);
+				}
+				builder.Append(")\n");
 				break;
 			default:
 				throw new Exception($"PrettyPrint not implemented yet for IrInstr of kind {instr.Kind}");

@@ -16,31 +16,18 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, ExpressionNode expression) {
 		switch (expression) {
 			case TupleNode tuple: {
-					if (tuple.Values.Children.Count == 0) {
-						block.AddInstr(new(
-							IrInstr.IrKind.EmptyTuple,
-							ctx.GetNewRegister(0)
-						));
-					}
-
 					ushort size = 0;
-					IrParam.Register? prevreg = null;
-					for (var i = 0; i < tuple.Values.Children.Count; i++) {
-						block = Generate(block, ctx, tuple.Values.Children[i]);
+					var registers = tuple.Values.SelectMany(v => {
+						block = Generate(block, ctx, v);
 						var reg = ctx.GetPreviousRegister();
-						size += ctx.TypeCtx.GetSize(tuple.Values.Children[i].Type!);
-						if (i == 0) {
-							prevreg = reg;
-						} else {
-							var register = ctx.GetNewRegister(size);
-							block.AddInstr(new(
-								IrInstr.IrKind.AppendTupleSection,
-								ctx.GetNewRegister(size),
-								prevreg!,
-								reg
-							));
-						}
-					}
+						var offset = size;
+						size += reg.Size;
+						return new IrParam[] { reg, new IrParam.Offset(offset) };
+					});
+					block.AddInstr(new(
+						IrInstr.IrKind.CreateTuple,
+						new [] { ctx.GetNewRegister(size) }.Concat(registers).ToArray()
+					));
 					return block;
 				}
 			case BoolLiteralNode boolean: {
@@ -60,13 +47,7 @@ public class IrGenerator {
 					return block;
 				}
 			case IntrinsicNode intrinsic: {
-						var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), intrinsic.Name);
-						block.AddInstr(new(
-							IrInstr.IrKind.LoadIntrinsic,
-							ctx.GetNewRegister(ctx.Platform.PointerSize),
-							new IrParam.Intrinsic((ulong)index)
-						));
-						return block;
+						throw new Exception("this should be unreachable");
 					}
 			case VarLookupNode lookup: {
 					var function = ctx.GetFunction(lookup.Name);
@@ -91,28 +72,38 @@ public class IrGenerator {
 			case CallNode call: {
 					block = Generate(block, ctx, call.BaseExpr);
 					var baseReg = ctx.GetPreviousRegister();
-					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
+					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);
-						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
-					}
-					for (uint i = 0; i < argRegs.Length; i++) {
-						block.AddInstr(new(
-							IrInstr.IrKind.StoreParam,
-							new IrParam.Parameter(argRegs[i].Item2, i),
-							argRegs[i].Item1
-						));
+						argRegs[i] = ctx.GetPreviousRegister();
 					}
 
 					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
 
-					var pure = fType.IsIntrinsic == false && !fType.Effects.Any();
+					var pure = !fType.Effects.Any();
 
 					block.AddInstr(new(
 						pure ? IrInstr.IrKind.Call : IrInstr.IrKind.CallImpure,
-						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
-						baseReg,
-						new IrParam.Count((ulong)call.Arguments.Children.Count)
+						new [] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseReg }.Concat(argRegs).ToArray()
+					));
+					return block;
+				}
+			case IntrinsicCallNode call: {
+					var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), call.BaseExpr.Name);
+					var baseIntrin = new IrParam.Intrinsic((ulong)index);
+					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
+					for (var i = 0; i < call.Arguments.Children.Count; i++) {
+						block = Generate(block, ctx, call.Arguments.Children[i]);
+						argRegs[i] = ctx.GetPreviousRegister();
+					}
+
+					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
+
+					var pure = !fType.Effects.Any();
+
+					block.AddInstr(new(
+						pure ? IrInstr.IrKind.Call : IrInstr.IrKind.CallImpure,
+						new IrParam[] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -125,56 +116,63 @@ public class IrGenerator {
 					switch (bin.OP) {
 						case BinOpKind.Multiply:
 							block.AddInstr(new(
-								IrInstr.IrKind.Multiply,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Multiply,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.Divide:
 							block.AddInstr(new(
-								IrInstr.IrKind.Divide,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Divide,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.Modulo:
 							block.AddInstr(new(
-								IrInstr.IrKind.Modulo,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Modulo,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.Add:
 							block.AddInstr(new(
-								IrInstr.IrKind.Add,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Add,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.Subtract:
 							block.AddInstr(new(
-								IrInstr.IrKind.Subtract,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Subtract,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.Equal:
 							block.AddInstr(new(
-								IrInstr.IrKind.Equal,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Equal,
 								leftReg,
 								rightReg
 							));
 							break;
 						case BinOpKind.NotEq:
 							block.AddInstr(new(
-								IrInstr.IrKind.NotEq,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.NotEq,
 								leftReg,
 								rightReg
 							));
@@ -191,22 +189,25 @@ public class IrGenerator {
 					switch (un.OP) {
 						case UnOpKind.Not:
 							block.AddInstr(new(
-								IrInstr.IrKind.Not,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Not,
 								reg
 							));
 							break;
 						case UnOpKind.Negative:
 							block.AddInstr(new(
-								IrInstr.IrKind.Negative,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Negative,
 								reg
 							));
 							break;
 						case UnOpKind.Positive:
 							block.AddInstr(new(
-								IrInstr.IrKind.Positive,
+								IrInstr.IrKind.Intrinsic,
 								ctx.GetNewRegister(size),
+								IrParam.IntrinsicOp.Positive,
 								reg
 							));
 							break;
@@ -391,28 +392,36 @@ public class IrGenerator {
 			case StandaloneCallNode call: {
 					block = Generate(block, ctx, call.BaseExpr);
 					var baseReg = ctx.GetPreviousRegister();
-					var argRegs = new (IrParam.Register, ushort)[call.Arguments.Children.Count];
+					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);
-						argRegs[i] = (ctx.GetPreviousRegister(), ctx.GetPreviousRegister().Size);
-					}
-					for (uint i = 0; i < argRegs.Length; i++) {
-						block.AddInstr(new(
-							IrInstr.IrKind.StoreParam,
-							new IrParam.Parameter(argRegs[i].Item2, i),
-							argRegs[i].Item1
-						));
+						argRegs[i] = ctx.GetPreviousRegister();
 					}
 
 					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
 
-					var pure = fType.IsIntrinsic == false && !fType.Effects.Any();
+					var pure = !fType.Effects.Any();
 
 					block.AddInstr(new(
 						pure ? IrInstr.IrKind.Call : IrInstr.IrKind.CallImpure,
-						ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)),
-						baseReg,
-						new IrParam.Count((ulong)call.Arguments.Children.Count)
+						new [] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseReg }.Concat(argRegs).ToArray()
+					));
+					return block;
+				}
+			case IntrinsicStandaloneCallNode call: {
+					var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), call.BaseExpr.Name);
+					var baseIntrin = new IrParam.Intrinsic((ulong)index);
+					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
+					for (var i = 0; i < call.Arguments.Children.Count; i++) {
+						block = Generate(block, ctx, call.Arguments.Children[i]);
+						argRegs[i] = ctx.GetPreviousRegister();
+					}
+
+					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
+
+					block.AddInstr(new(
+						IrInstr.IrKind.IntrinsicImpure,
+						new IrParam[] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -491,17 +500,17 @@ public class IrGenerator {
 
 	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
 		// move arguments to registers
-		uint i = 0;
-		foreach (var param in function.Parameters) {
-			block.AddInstr(new(
-				IrInstr.IrKind.LoadArgument,
-				ctx.GetNewRegister(ctx.TypeCtx.GetSize(param.Type.Type!)),
-				new IrParam.Argument(ctx.TypeCtx.GetSize(param.Type.Type!), i++)
-			));
+		var argList = function.Parameters.Select(p => ctx.GetNewRegister(ctx.TypeCtx.GetSize(p.Type.Type!))).ToArray();
+		block.AddInstr(new(
+			IrInstr.IrKind.LoadArguments,
+			argList
+		));
+		for (int i = 0; i < function.Parameters.Children.Count; i++) {
+			var param = function.Parameters.Children[i];
 			block.AddInstr(new(
 				IrInstr.IrKind.StoreLocal,
-				new IrParam.Local(param.Name, ctx.GetPreviousRegister().Size),
-				ctx.GetPreviousRegister()
+				new IrParam.Local(param.Name, argList[i].Size),
+				argList[i]
 			));
 		}
 

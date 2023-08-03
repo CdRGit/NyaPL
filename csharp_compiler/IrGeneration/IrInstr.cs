@@ -17,11 +17,10 @@ public readonly struct IrInstr {
 	public enum IrKind {
 		Phi,
 
-		StoreParam,
-		AppendTupleSection,
+		CreateTuple,
 
 		Copy,
-		LoadArgument,
+		LoadArguments,
 		LoadTupleSection,
 		LoadFunction,
 		LoadIntrinsic,
@@ -31,7 +30,6 @@ public readonly struct IrInstr {
 
 		IntLiteral,
 		BoolLiteral,
-		EmptyTuple,
 
 		BranchBool,
 		BranchAlways,
@@ -40,18 +38,8 @@ public readonly struct IrInstr {
 		CallImpure,
 		Return,
 
-		Multiply,
-		Divide,
-		Modulo,
-		Add,
-		Subtract,
-
-		Equal,
-		NotEq,
-
-		Not,
-		Positive,
-		Negative,
+		Intrinsic,
+		IntrinsicImpure,
 	}
 }
 
@@ -73,24 +61,6 @@ public abstract class IrParam {
 			Index = index;
 		}
 		public override string ToString() => $"Register({Size}, {Index})";
-	}
-	public class Parameter : IrParam {
-		public ushort Size { get; }
-		public uint Index { get; }
-		public Parameter(ushort size, uint index) {
-			Size = size;
-			Index = index;
-		}
-		public override string ToString() => $"Parameter({Size}, {Index})";
-	}
-	public class Argument : IrParam {
-		public ushort Size { get; }
-		public uint Index { get; }
-		public Argument(ushort size, uint index) {
-			Size = size;
-			Index = index;
-		}
-		public override string ToString() => $"Argument({Size}, {Index})";
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }
@@ -140,5 +110,42 @@ public abstract class IrParam {
 			Blk = blk;
 		}
 		public override string ToString() => $"Block({Blk})";
+	}
+	public class IntrinsicOp : IrParam {
+		public OpKind Kind { get; }
+		public IntrinsicOp(OpKind kind) {
+			Kind = kind;
+		}
+		public override string ToString() => $"IntrinsicOperator({Kind})";
+
+		public static IntrinsicOp Multiply => new(OpKind.Multiply);
+		public static IntrinsicOp Divide   => new(OpKind.Divide);
+		public static IntrinsicOp Modulo   => new(OpKind.Modulo);
+
+		public static IntrinsicOp Add      => new(OpKind.Add);
+		public static IntrinsicOp Subtract => new(OpKind.Subtract);
+
+		public static IntrinsicOp Equal    => new(OpKind.Equal);
+		public static IntrinsicOp NotEq    => new(OpKind.NotEq);
+
+		public static IntrinsicOp Not      => new(OpKind.Not);
+		public static IntrinsicOp Positive => new(OpKind.Positive);
+		public static IntrinsicOp Negative => new(OpKind.Negative);
+
+		public enum OpKind {
+			Multiply,
+			Divide,
+			Modulo,
+
+			Add,
+			Subtract,
+
+			Equal,
+			NotEq,
+
+			Not,
+			Negative,
+			Positive,
+		}
 	}
 }

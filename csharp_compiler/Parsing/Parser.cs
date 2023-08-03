@@ -246,6 +246,13 @@ public class Parser {
 			var effects = ParseList(tokens, TokenKind.LSquare, TokenKind.RSquare, null, ParseSideEffect);
 			var body = ParseList(tokens, TokenKind.LCurly, TokenKind.RCurly, null, ParseStatement);
 			return new UnsafeStatementNode(loc, effects, body);
+		} else if (tokens.Match(KeywordKind.Intrinsic)) {
+			var loc = tokens.Take(KeywordKind.Intrinsic).Location;
+			tokens.Take(TokenKind.Colon);
+			var intrinsic = new IntrinsicNode(tokens.Current.Location, tokens.Take(TokenKind.Identifier).StrVal);
+			var arguments = ParseList(tokens, TokenKind.LParen, TokenKind.RParen, TokenKind.Comma, ParseExpression);
+			tokens.Take(TokenKind.SemiColon);
+			return new IntrinsicStandaloneCallNode(loc, intrinsic, arguments);
 		}
 
 		// reassignment / standalone call

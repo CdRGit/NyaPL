@@ -89,54 +89,56 @@ public class TypeChecker {
 		throw new Exception($"Unimplemented: Check({type.GetType().Name})");
 	}
 
-	private ExpressionNode Check(Context ctx, ExpressionNode expression) {
+	private (ExpressionNode, IntrinsicNode?) Check(Context ctx, ExpressionNode expression, bool directChildOfCall = false) {
 		switch (expression) {
 			case TupleNode tupleNode: {
-				var values = new AstListNode<ExpressionNode>(tupleNode.Location, tupleNode.Values.Select(v => Check(ctx, v)).ToList().AsReadOnly());
+				var values = new AstListNode<ExpressionNode>(tupleNode.Location, tupleNode.Values.Select(v => Check(ctx, v).Item1).ToList().AsReadOnly());
 				var type = new Apply(tuple, values.Select(v => v.Type!).ToList().AsReadOnly());
-				return new TupleNode(tupleNode.Location, values, type);
+				return (new TupleNode(tupleNode.Location, values, type), null);
 			}
 			case HoleExpressionNode hole: {
-				return new HoleExpressionNode(hole.Location, ctx.NewMeta());
+				return (new HoleExpressionNode(hole.Location, ctx.NewMeta()), null);
 			}
 			case IntLiteralNode iLit: {
-				return new IntLiteralNode(iLit.Location, iLit.Value, i32);
+				return (new IntLiteralNode(iLit.Location, iLit.Value, i32), null);
 			}
 			case BoolLiteralNode bLit: {
-				return new BoolLiteralNode(bLit.Location, bLit.Value, boolean);
+				return (new BoolLiteralNode(bLit.Location, bLit.Value, boolean), null);
 			}
 			case VarLookupNode varLookup: {
 				if (!ctx.LookupVar(varLookup.Name, out Typ? t, out var fullName, out _)) throw new TypeError(varLookup.Location, $"Variable {varLookup.Name} not declared");
-				return new VarLookupNode(varLookup.Location, fullName, t);
+				return (new VarLookupNode(varLookup.Location, fullName, t), null);
 			}
 			case IntrinsicNode intrinsic: {
 				if (!ctx.Unsafe) throw new TypeError(intrinsic.Location, "Intrinsics are not allowed outside of `unsafe` blocks");
+				if (!directChildOfCall) throw new TypeError(intrinsic.Location, "Intrinsics are only allowed as the child of a call");
 				if (!ctx.LookupIntrinsic(intrinsic.Name, out Typ? t)) throw new TypeError(intrinsic.Location, $"Intrisic {intrinsic.Name} does not exist");
-				return new IntrinsicNode(intrinsic.Location, intrinsic.Name, t);
+				var node = new IntrinsicNode(intrinsic.Location, intrinsic.Name, t);
+				return (node, node);
 			}
 			case BinOpNode binOp: {
 				// get type of left operand
-				var lExpr = Check(ctx, binOp.LExpr);
+				var lExpr = Check(ctx, binOp.LExpr).Item1;
 				// get type of right operand
-				var rExpr = Check(ctx, binOp.RExpr);
+				var rExpr = Check(ctx, binOp.RExpr).Item1;
 				// create a return type meta
 				var resultType = ctx.NewMeta();
 				// add a constraint for the right binary operator
 				ctx.AddTypeConstraint(new TypeConstraint.BinOp(binOp.Location, lExpr.Type!, rExpr.Type!, resultType, binOp.OP, ctx));
-				return new BinOpNode(binOp.Location, lExpr, binOp.OP, rExpr, resultType);
+				return (new BinOpNode(binOp.Location, lExpr, binOp.OP, rExpr, resultType), null);
 			}
 			case UnOpNode unOp: {
 				// get type of operand
-				var expr = Check(ctx, unOp.Expr);
+				var expr = Check(ctx, unOp.Expr).Item1;
 				// create a return type meta
 				var resultType = ctx.NewMeta();
 				// add a constraint for the right unary operator
 				ctx.AddTypeConstraint(new TypeConstraint.UnOp(unOp.Location, expr.Type!, resultType, unOp.OP, ctx));
-				return new UnOpNode(unOp.Location, expr, unOp.OP, resultType);
+				return (new UnOpNode(unOp.Location, expr, unOp.OP, resultType), null);
 			}
 			case CallNode call: {
-				var baseExpr = Check(ctx, call.BaseExpr);
-				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg)).ToList().AsReadOnly());
+				var (baseExpr, intrinsic) = Check(ctx, call.BaseExpr, directChildOfCall: true);
+				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg).Item1).ToList().AsReadOnly());
 				var effects = ctx.NewMetaEffect();
 				ctx.AddEffectConstraint(new EffectConstraint.AtMost(arguments.Location, effects, ctx.SideEffects()));
 				Typ baseType = ctx.Force(baseExpr.Type!);
@@ -148,7 +150,7 @@ public class TypeChecker {
 				ctx.Unify(baseExpr.Location, funcType, baseType);
 				argTs.Skip(1).Zip(arguments, (a, b) => { ctx.Unify(b.Location, a, b.Type!); return true; }).All(b => b);
 
-				return new CallNode(call.Location, baseExpr, arguments, t);
+				return intrinsic == null ? (new CallNode(call.Location, baseExpr, arguments, t), null) : (new IntrinsicCallNode(call.Location, intrinsic, arguments, t), null);
 			}
 		}
 		throw new Exception($"Unimplemented: Check({expression.GetType().Name})");
@@ -163,7 +165,7 @@ public class TypeChecker {
 	}
 
 	private ElifStatementNode Check(Context ctx, ElifStatementNode elif) {
-		var expr = Check(ctx, elif.Expr);
+		var expr = Check(ctx, elif.Expr).Item1;
 		ctx.Unify(expr.Location, expr.Type!, boolean);
 		ctx.NewVariableScope(true);
 		var body = new AstListNode<StatementNode>(elif.Body.Location, elif.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
@@ -173,7 +175,7 @@ public class TypeChecker {
 	}
 
 	private IfStatementNode Check(Context ctx, IfStatementNode ifStatement) {
-		var expr = Check(ctx, ifStatement.IfExpr);
+		var expr = Check(ctx, ifStatement.IfExpr).Item1;
 		ctx.Unify(expr.Location, expr.Type!, boolean);
 		ctx.NewVariableScope(true);
 		var body = new AstListNode<StatementNode>(ifStatement.IfBody.Location, ifStatement.IfBody.Select(s => Check(ctx, s)).ToList().AsReadOnly());
@@ -187,7 +189,7 @@ public class TypeChecker {
 	}
 
 	private WhileStatementNode Check(Context ctx, WhileStatementNode whileStatement) {
-		var expr = Check(ctx, whileStatement.Expr);
+		var expr = Check(ctx, whileStatement.Expr).Item1;
 		ctx.Unify(expr.Location, expr.Type!, boolean);
 		ctx.NewVariableScope(true);
 		var body = new AstListNode<StatementNode>(whileStatement.Body.Location, whileStatement.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
@@ -217,7 +219,7 @@ public class TypeChecker {
 			case ReturnStatementNode ret: {
 				var expression = ret.Expression;
 				if (expression != null) {
-					expression = Check(ctx, expression);
+					expression = Check(ctx, expression).Item1;
 					ctx.Unify(expression.Location, expression.Type!, ctx.ReturnType());
 				} else {
 					throw new Exception($"Empty return statements are not allowed yet");
@@ -226,14 +228,14 @@ public class TypeChecker {
 			}
 			case DeclareVarNode dec: {
 				var declaredType = Check(ctx, dec.Type);
-				var expressionType = Check(ctx, dec.Expression);
+				var expressionType = Check(ctx, dec.Expression).Item1;
 				ctx.Unify(declaredType.Location, declaredType.Type, expressionType.Type);
 				if(!ctx.DeclareVar(dec.Name, declaredType.Type!, dec.Mutable)) throw new TypeError(dec.Location, $"Variable {dec.Name} already declared");
 				return new DeclareVarNode(dec.Location, dec.Name, dec.Mutable, declaredType, expressionType);
 			}
 			case DestructureNode destruct: {
 				var items = new AstListNode<DestructureItemNode>(destruct.Location, destruct.Items.Select(n => Check(ctx, n)).ToList().AsReadOnly());
-				var expression = Check(ctx, destruct.Expression);
+				var expression = Check(ctx, destruct.Expression).Item1;
 				var expected = new Apply(tuple, items.Select(n => n.Type!).ToList().AsReadOnly());
 				ctx.Unify(destruct.Location, expected, expression.Type!);
 				foreach (var item in items) {
@@ -271,7 +273,7 @@ public class TypeChecker {
 			}
 			case ReassignNode reassign: {
 				var lVal = Check(ctx, reassign.LVal);
-				var expr = Check(ctx, reassign.Expr);
+				var expr = Check(ctx, reassign.Expr).Item1;
 
 				ctx.Unify(reassign.Location, lVal.Type, expr.Type);
 
@@ -280,7 +282,7 @@ public class TypeChecker {
 			}
 			case StandaloneCallNode call: {
 				var baseExpr = Check(ctx, call.BaseExpr, mutableRequired: false);
-				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg)).ToList().AsReadOnly());
+				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg).Item1).ToList().AsReadOnly());
 				var effects = ctx.NewMetaEffect();
 				ctx.AddEffectConstraint(new EffectConstraint.AtMost(arguments.Location, effects, ctx.SideEffects()));
 				Typ baseType = ctx.Force(baseExpr.Type!);
@@ -296,6 +298,25 @@ public class TypeChecker {
 				ctx.Unify(baseExpr.Location, t, new Apply(tuple, new Typ[]{}.ToList().AsReadOnly()));
 
 				return new StandaloneCallNode(call.Location, baseExpr, arguments, t);
+			}
+			case IntrinsicStandaloneCallNode call: {
+				var (baseExpr, intrinsic) = Check(ctx, call.BaseExpr, directChildOfCall: true);
+				var arguments = new AstListNode<ExpressionNode>(call.Arguments.Location, call.Arguments.Select(arg => Check(ctx, arg).Item1).ToList().AsReadOnly());
+				var effects = ctx.NewMetaEffect();
+				ctx.AddEffectConstraint(new EffectConstraint.AtMost(arguments.Location, effects, ctx.SideEffects()));
+				Typ baseType = ctx.Force(baseExpr.Type!);
+
+				Typ t = ctx.NewMeta();
+				var argTs = arguments.Select(_ => ctx.NewMeta()).Append(ctx.NewMeta()).Cast<Typ>().ToList().AsReadOnly();
+				ctx.Unify(baseExpr.Location, argTs.First(), t);
+				var funcType = new Apply(new Function(new List<Effect>(new[] {effects}).AsReadOnly(), null), argTs);
+				ctx.Unify(baseExpr.Location, funcType, baseType);
+				argTs.Skip(1).Zip(arguments, (a, b) => { ctx.Unify(b.Location, a, b.Type!); return true; }).All(b => b);
+
+				// temporary(?), forces the call to resolve to a ()
+				ctx.Unify(baseExpr.Location, t, new Apply(tuple, new Typ[]{}.ToList().AsReadOnly()));
+
+				return new IntrinsicStandaloneCallNode(call.Location, intrinsic!, arguments, t);
 			}
 		}
 		throw new Exception($"Unimplemented: Check({statement.GetType().Name})");

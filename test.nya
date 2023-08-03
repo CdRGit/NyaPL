@@ -2,8 +2,9 @@ platform {
 	[simulator] {
 		fn [stdio] write_num(value: i32): () {
 			unsafe [stdio] {
-				return intrinsic:write_num(value);
+				intrinsic:write_num(value);
 			}
+			return ();
 		}
 	}
 }
@@ -12,6 +13,7 @@ fn [stdio] main(): i32 {
 	fn nested(): i32 {
 		return 500;
 	}
+	let tuple = (500, 200, nested());
 	let mut a = 0;
 	while (a != nested()) {
 		a = a + 1;

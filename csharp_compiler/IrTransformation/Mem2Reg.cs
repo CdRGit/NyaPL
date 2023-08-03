@@ -196,21 +196,17 @@ public class Mem2Reg {
 				case IrInstr.IrKind.IntLiteral:
 				case IrInstr.IrKind.BoolLiteral:
 
-				case IrInstr.IrKind.Add:
-				case IrInstr.IrKind.Multiply:
-				case IrInstr.IrKind.NotEq:
-				case IrInstr.IrKind.Equal:
-
 				case IrInstr.IrKind.LoadIntrinsic:
 				case IrInstr.IrKind.LoadFunction:
-				case IrInstr.IrKind.LoadArgument:
+				case IrInstr.IrKind.LoadArguments:
 				case IrInstr.IrKind.LoadTupleSection:
 
-				case IrInstr.IrKind.StoreParam:
-				case IrInstr.IrKind.AppendTupleSection:
+				case IrInstr.IrKind.CreateTuple:
 
 				case IrInstr.IrKind.CallImpure:
 				case IrInstr.IrKind.Call:
+				case IrInstr.IrKind.IntrinsicImpure:
+				case IrInstr.IrKind.Intrinsic:
 				case IrInstr.IrKind.Return:
 					replacement.AddInstr(instr);
 					break;
