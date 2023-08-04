@@ -23,13 +23,8 @@ public readonly struct IrInstr {
 		LoadArguments,
 		LoadTupleSection,
 		LoadFunction,
-		LoadIntrinsic,
-
 		LoadLocal,
 		StoreLocal,
-
-		IntLiteral,
-		BoolLiteral,
 
 		BranchBool,
 		BranchAlways,
@@ -112,40 +107,30 @@ public abstract class IrParam {
 		public override string ToString() => $"Block({Blk})";
 	}
 	public class IntrinsicOp : IrParam {
-		public OpKind Kind { get; }
-		public IntrinsicOp(OpKind kind) {
+		public IrOpKind Kind { get; }
+		public IntrinsicOp(IrOpKind kind) {
 			Kind = kind;
 		}
 		public override string ToString() => $"IntrinsicOperator({Kind})";
-
-		public static IntrinsicOp Multiply => new(OpKind.Multiply);
-		public static IntrinsicOp Divide   => new(OpKind.Divide);
-		public static IntrinsicOp Modulo   => new(OpKind.Modulo);
-
-		public static IntrinsicOp Add      => new(OpKind.Add);
-		public static IntrinsicOp Subtract => new(OpKind.Subtract);
-
-		public static IntrinsicOp Equal    => new(OpKind.Equal);
-		public static IntrinsicOp NotEq    => new(OpKind.NotEq);
-
-		public static IntrinsicOp Not      => new(OpKind.Not);
-		public static IntrinsicOp Positive => new(OpKind.Positive);
-		public static IntrinsicOp Negative => new(OpKind.Negative);
-
-		public enum OpKind {
-			Multiply,
-			Divide,
-			Modulo,
-
-			Add,
-			Subtract,
-
-			Equal,
-			NotEq,
-
-			Not,
-			Negative,
-			Positive,
-		}
 	}
+}
+
+public enum IrOpKind {
+	Multiply_signed,
+	Divide_signed,
+	Modulo_signed,
+
+	Add_signed,
+	Subtract_signed,
+
+	Equal_integer,
+	NotEq_integer,
+
+	Equal_bool,
+	NotEq_bool,
+
+	Not_bool,
+
+	Negative_signed,
+	Positive_signed,
 }

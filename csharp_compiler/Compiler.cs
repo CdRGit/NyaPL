@@ -59,16 +59,16 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
-	readonly static Dictionary<IrParam.IntrinsicOp.OpKind, string> intrinsicOps = new() {
-		{IrParam.IntrinsicOp.OpKind.Multiply, "multiply"},
-		{IrParam.IntrinsicOp.OpKind.Divide,   "divide"},
-		{IrParam.IntrinsicOp.OpKind.Modulo,   "modulo"},
+	readonly static Dictionary<IrOpKind, string> intrinsicOps = new() {
+		{IrOpKind.Multiply_signed, "multiply_signed"},
+		{IrOpKind.Divide_signed,   "divide_signed"},
+		{IrOpKind.Modulo_signed,   "modulo_signed"},
 
-		{IrParam.IntrinsicOp.OpKind.Add,      "add"},
-		{IrParam.IntrinsicOp.OpKind.Subtract, "subtract"},
+		{IrOpKind.Add_signed,      "add_signed"},
+		{IrOpKind.Subtract_signed, "subtract_signed"},
 
-		{IrParam.IntrinsicOp.OpKind.Equal,    "equal"},
-		{IrParam.IntrinsicOp.OpKind.NotEq,    "not_equal"},
+		{IrOpKind.Equal_integer,   "equal_integer"},
+		{IrOpKind.NotEq_integer,   "not_equal_integer"},
 	};
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
@@ -128,10 +128,7 @@ public class Compiler {
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("?\n");
 				break;
-			case IrInstr.IrKind.IntLiteral:
-			case IrInstr.IrKind.BoolLiteral:
 			case IrInstr.IrKind.LoadFunction:
-			case IrInstr.IrKind.LoadIntrinsic:
 			case IrInstr.IrKind.Copy:
 			case IrInstr.IrKind.StoreLocal:
 			case IrInstr.IrKind.LoadLocal:

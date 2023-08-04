@@ -11,6 +11,8 @@ using Nyapl.Typing.Types;
 using Nyapl.Typing.Effects;
 using Nyapl.Typing.Constraints;
 
+using Nyapl.IrGeneration;
+
 namespace Nyapl.Typing;
 
 public class TypeChecker {
@@ -479,30 +481,36 @@ public class TypeChecker {
 		};
 
 		// TODO rework the way operators work so I can make tuples and functions have equality (assuming all types in the tuple have equality, for functions it doesn't matter)
-		List<(BinOpKind, Typ, Typ, Typ)> binOperators = new() {
-			(BinOpKind.Add,      i32, i32, i32),
-			(BinOpKind.Subtract, i32, i32, i32),
-			(BinOpKind.Multiply, i32, i32, i32),
-			(BinOpKind.Divide,   i32, i32, i32),
-			(BinOpKind.Modulo,   i32, i32, i32),
+		List<(BinOpKind, Typ, Typ, Typ, IrOpKind)> binOperators = new() {
+			(BinOpKind.Add,      i32, i32, i32, IrOpKind.Add_signed),
+			(BinOpKind.Subtract, i32, i32, i32, IrOpKind.Subtract_signed),
+			(BinOpKind.Multiply, i32, i32, i32, IrOpKind.Multiply_signed),
+			(BinOpKind.Divide,   i32, i32, i32, IrOpKind.Divide_signed),
+			(BinOpKind.Modulo,   i32, i32, i32, IrOpKind.Modulo_signed),
 
-			(BinOpKind.Equal,    i32, i32, boolean),
-			(BinOpKind.NotEq,    i32, i32, boolean),
+			(BinOpKind.Equal,    i32, i32, boolean, IrOpKind.Equal_integer),
+			(BinOpKind.NotEq,    i32, i32, boolean, IrOpKind.NotEq_integer),
 
-			(BinOpKind.Equal,    boolean, boolean, boolean),
-			(BinOpKind.NotEq,    boolean, boolean, boolean),
+			(BinOpKind.Equal,    boolean, boolean, boolean, IrOpKind.Equal_bool),
+			(BinOpKind.NotEq,    boolean, boolean, boolean, IrOpKind.NotEq_bool),
 		};
-		List<(UnOpKind, Typ, Typ)> unOperators = new() {
-			(UnOpKind.Not,      boolean, boolean),
-			(UnOpKind.Positive, i32, i32),
-			(UnOpKind.Negative, i32, i32),
+		List<(UnOpKind, Typ, Typ, IrOpKind)> unOperators = new() {
+			(UnOpKind.Not,      boolean, boolean, IrOpKind.Not_bool),
+			(UnOpKind.Positive, i32, i32, IrOpKind.Positive_signed),
+			(UnOpKind.Negative, i32, i32, IrOpKind.Negative_signed),
 		};
+
+		public IrParam.IntrinsicOp GetOp(Typ left, Typ right, BinOpKind kind)
+			=> new(binOperators.First(t => t.Item1 == kind && t.Item2 == left && t.Item3 == right).Item5);
+
+		public IrParam.IntrinsicOp GetOp(Typ source, UnOpKind kind)
+			=> new(unOperators.First(t => t.Item1 == kind && t.Item2 == source).Item4);
 
 		public ReadOnlyCollection<(BinOpKind, Typ, Typ, Typ)> GetBinOperators()
-			=> binOperators.AsReadOnly();
+			=> binOperators.Select(t => (t.Item1, t.Item2, t.Item3, t.Item4)).ToList().AsReadOnly();
 
 		public ReadOnlyCollection<(UnOpKind, Typ, Typ)> GetUnOperators()
-			=> unOperators.AsReadOnly();
+			=> unOperators.Select(t => (t.Item1, t.Item2, t.Item3)).ToList().AsReadOnly();
 
 		public void DeclareType(SourceLoc loc, string name, Typ type) {
 			if (namedTypes.ContainsKey(name)) throw new TypeError(loc, $"Attempting to redefine type {name}");

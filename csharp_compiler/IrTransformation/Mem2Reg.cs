@@ -193,16 +193,13 @@ public class Mem2Reg {
 
 		foreach (var instr in node.Instructions) {
 			switch (instr.Kind) {
-				case IrInstr.IrKind.IntLiteral:
-				case IrInstr.IrKind.BoolLiteral:
-
-				case IrInstr.IrKind.LoadIntrinsic:
 				case IrInstr.IrKind.LoadFunction:
 				case IrInstr.IrKind.LoadArguments:
 				case IrInstr.IrKind.LoadTupleSection:
 
 				case IrInstr.IrKind.CreateTuple:
 
+				case IrInstr.IrKind.Copy:
 				case IrInstr.IrKind.CallImpure:
 				case IrInstr.IrKind.Call:
 				case IrInstr.IrKind.IntrinsicImpure:

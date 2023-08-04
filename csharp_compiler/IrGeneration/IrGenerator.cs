@@ -32,7 +32,7 @@ public class IrGenerator {
 				}
 			case BoolLiteralNode boolean: {
 					block.AddInstr(new(
-						IrInstr.IrKind.BoolLiteral,
+						IrInstr.IrKind.Copy,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
 						new IrParam.Bool(boolean.Value)
 					));
@@ -40,7 +40,7 @@ public class IrGenerator {
 				}
 			case IntLiteralNode integer: {
 					block.AddInstr(new(
-						IrInstr.IrKind.IntLiteral,
+						IrInstr.IrKind.Copy,
 						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
 						new IrParam.Int(integer.Value)
 					));
@@ -113,107 +113,25 @@ public class IrGenerator {
 					var leftReg = ctx.GetPreviousRegister();
 					block = Generate(block, ctx, bin.RExpr);
 					var rightReg = ctx.GetPreviousRegister();
-					switch (bin.OP) {
-						case BinOpKind.Multiply:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Multiply,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.Divide:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Divide,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.Modulo:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Modulo,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.Add:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Add,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.Subtract:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Subtract,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.Equal:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Equal,
-								leftReg,
-								rightReg
-							));
-							break;
-						case BinOpKind.NotEq:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.NotEq,
-								leftReg,
-								rightReg
-							));
-							break;
-						default:
-							throw new Exception($"Generating `BinOpKind.{bin.OP}` not implemented yet");
-					}
+					block.AddInstr(new(
+						IrInstr.IrKind.Intrinsic,
+						ctx.GetNewRegister(size),
+						ctx.TypeCtx.GetOp(bin.LExpr.Type!, bin.RExpr.Type!, bin.OP),
+						leftReg,
+						rightReg
+					));
 					return block;
 				}
 			case UnOpNode un: {
 					var size = ctx.TypeCtx.GetSize(un.Type!);
 					block = Generate(block, ctx, un.Expr);
 					var reg = ctx.GetPreviousRegister();
-					switch (un.OP) {
-						case UnOpKind.Not:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Not,
-								reg
-							));
-							break;
-						case UnOpKind.Negative:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Negative,
-								reg
-							));
-							break;
-						case UnOpKind.Positive:
-							block.AddInstr(new(
-								IrInstr.IrKind.Intrinsic,
-								ctx.GetNewRegister(size),
-								IrParam.IntrinsicOp.Positive,
-								reg
-							));
-							break;
-						default:
-							throw new Exception($"Generating `UnOpKind.{un.OP}` not implemented yet");
-					}
+					block.AddInstr(new(
+						IrInstr.IrKind.Intrinsic,
+						ctx.GetNewRegister(size),
+						ctx.TypeCtx.GetOp(un.Expr.Type!, un.OP),
+						reg
+					));
 					return block;
 				}
 			default:
