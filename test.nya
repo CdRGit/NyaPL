@@ -13,10 +13,12 @@ fn [stdio] main(): i32 {
 	fn nested(): i32 {
 		return 500;
 	}
-	let tuple = (500, 200, nested());
+	let tuple = (500 + 20, 200, nested());
 	let mut a = 0;
 	while (a != nested()) {
 		a = a + 1;
 	}
-	return a;
+	let func = nested;
+	let another_copy = func;
+	return another_copy();
 }

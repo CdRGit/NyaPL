@@ -37,18 +37,12 @@ public class IrBlock {
 	public IrBlock(int id) {
 		ID = id;
 		hasReturn = false;
-		Frontier = new List<IrBlock>().AsReadOnly();
-	}
-
-	public ReadOnlyCollection<IrBlock> Frontier {
-		get;
-		set;
 	}
 
 	public void AddInstr(IrInstr instruction) {
 		if (HasReturn) // a return was already added, no more instructions can be added to a terminal node
 			return;
-		if (instruction.Kind == IrInstr.IrKind.Return) hasReturn = true;
+		if (instruction.Kind == IrKind.Return) hasReturn = true;
 		instructions.Add(instruction);
 	}
 

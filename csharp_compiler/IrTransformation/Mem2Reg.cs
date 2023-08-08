@@ -62,10 +62,6 @@ public class Mem2Reg {
 			}
 		}
 
-		foreach (var b in nodes) {
-			b.Frontier = frontiers[b.ID].AsReadOnly();
-		}
-
 		return frontiers.ToDictionary(p => p.Key, p => p.Value.AsReadOnly()).AsReadOnly();
 	}
 
@@ -74,7 +70,7 @@ public class Mem2Reg {
 
 		foreach (var b in nodes) {
 			foreach (var instr in b.Instructions) {
-				if (instr.Kind == IrInstr.IrKind.StoreLocal) {
+				if (instr.Kind == IrKind.StoreLocal) {
 					var name = (instr[0] as IrParam.Local)!.Name;
 
 					if (!variables.ContainsKey(name))
@@ -186,48 +182,48 @@ public class Mem2Reg {
 						arguments.Add(new IrParam.Block(i));
 						arguments.Add(propagatedVariables[phi.Key].Item2.First(p => p.Item1.ID == i.ID).Item2);
 					}
-					replacement.AddInstr(new(IrInstr.IrKind.Phi, arguments.ToArray()));
+					replacement.AddInstr(new(IrKind.Phi, arguments.ToArray()));
 				}
 			}
 		}
 
 		foreach (var instr in node.Instructions) {
 			switch (instr.Kind) {
-				case IrInstr.IrKind.LoadFunction:
-				case IrInstr.IrKind.LoadArguments:
-				case IrInstr.IrKind.LoadTupleSection:
+				case IrKind.LoadFunction:
+				case IrKind.LoadArguments:
+				case IrKind.LoadTupleSection:
 
-				case IrInstr.IrKind.CreateTuple:
+				case IrKind.CreateTuple:
 
-				case IrInstr.IrKind.Copy:
-				case IrInstr.IrKind.CallImpure:
-				case IrInstr.IrKind.Call:
-				case IrInstr.IrKind.IntrinsicImpure:
-				case IrInstr.IrKind.Intrinsic:
-				case IrInstr.IrKind.Return:
+				case IrKind.Copy:
+				case IrKind.CallImpure:
+				case IrKind.Call:
+				case IrKind.IntrinsicImpure:
+				case IrKind.Intrinsic:
+				case IrKind.Return:
 					replacement.AddInstr(instr);
 					break;
 
-				case IrInstr.IrKind.BranchBool:
-					replacement.AddInstr(new(IrInstr.IrKind.BranchBool,
+				case IrKind.BranchBool:
+					replacement.AddInstr(new(IrKind.BranchBool,
 						instr[0],
 						new IrParam.Block(ctx.Replace((instr[1] as IrParam.Block)!.Blk)),
 						new IrParam.Block(ctx.Replace((instr[2] as IrParam.Block)!.Blk)))
 					);
 					break;
 
-				case IrInstr.IrKind.BranchAlways:
-					replacement.AddInstr(new(IrInstr.IrKind.BranchAlways,
+				case IrKind.BranchAlways:
+					replacement.AddInstr(new(IrKind.BranchAlways,
 						new IrParam.Block(ctx.Replace((instr[0] as IrParam.Block)!.Blk))
 						));
 					break;
 
-				case IrInstr.IrKind.LoadLocal:
+				case IrKind.LoadLocal:
 					var reg = ctx.GetLocal((instr[1] as IrParam.Local)!);
-					replacement.AddInstr(new(IrInstr.IrKind.Copy, instr[0], reg));
+					replacement.AddInstr(new(IrKind.Copy, instr[0], reg));
 					break;
 
-				case IrInstr.IrKind.StoreLocal:
+				case IrKind.StoreLocal:
 					ctx.SetLocal((instr[0] as IrParam.Local)!, (instr[1] as IrParam.Register)!);
 					break;
 

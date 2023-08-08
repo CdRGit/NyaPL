@@ -13,29 +13,29 @@ public readonly struct IrInstr {
 	}
 
 	public override string ToString() => $"{Kind,20} {string.Join(" ", Params.Select(p => $"{p,-20}"))}";
+}
 
-	public enum IrKind {
-		Phi,
+public enum IrKind {
+	Phi,
 
-		CreateTuple,
+	CreateTuple,
 
-		Copy,
-		LoadArguments,
-		LoadTupleSection,
-		LoadFunction,
-		LoadLocal,
-		StoreLocal,
+	Copy,
+	LoadArguments,
+	LoadTupleSection,
+	LoadFunction,
+	LoadLocal,
+	StoreLocal,
 
-		BranchBool,
-		BranchAlways,
+	BranchBool,
+	BranchAlways,
 
-		Call,
-		CallImpure,
-		Return,
+	Call,
+	CallImpure,
+	Return,
 
-		Intrinsic,
-		IntrinsicImpure,
-	}
+	Intrinsic,
+	IntrinsicImpure,
 }
 
 public abstract class IrParam {

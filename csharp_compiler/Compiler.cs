@@ -25,23 +25,25 @@ namespace Nyapl;
 public class Compiler {
 	public Arguments Args { get; }
 
-	private Lexer        lexer        = new();
-	private Parser       parser       = new();
-	private Localizer    localizer;
-	private TypeChecker  typeChecker  = new();
-	private FlowAnalyzer flowAnalyzer = new();
-	private IrGenerator  irGenerator  = new();
-	private Mem2Reg      mem2reg      = new();
+	private Lexer           lexer        = new();
+	private Parser          parser       = new();
+	private Localizer       localizer;
+	private TypeChecker     typeChecker  = new();
+	private FlowAnalyzer    flowAnalyzer = new();
+	private IrGenerator     irGenerator  = new();
+	private Mem2Reg         mem2reg      = new();
+	private CopyPropagation copyPropagator = new();
 
 	private List<string> sourceFiles = new();
-	private Dictionary<string, string>             readFiles      = new();
-	private Dictionary<string, TokenList>          lexedFiles     = new();
-	private Dictionary<string, FileNode>           parsedFiles    = new();
-	private Dictionary<string, LocalizedFileNode>  localizedFiles = new();
-	private Dictionary<string, TypedFileNode>      typedFiles     = new();
-	private Dictionary<string, TypedFileNode>      analyzedFiles  = new();
-	private Dictionary<string, IrResult>           generatedFiles = new();
-	private Dictionary<string, IrResult>           mem2regFiles   = new();
+	private Dictionary<string, string>             readFiles          = new();
+	private Dictionary<string, TokenList>          lexedFiles         = new();
+	private Dictionary<string, FileNode>           parsedFiles        = new();
+	private Dictionary<string, LocalizedFileNode>  localizedFiles     = new();
+	private Dictionary<string, TypedFileNode>      typedFiles         = new();
+	private Dictionary<string, TypedFileNode>      analyzedFiles      = new();
+	private Dictionary<string, IrResult>           generatedFiles     = new();
+	private Dictionary<string, IrResult>           mem2regFiles       = new();
+	private Dictionary<string, IrResult>           copyPropagateFiles = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -109,7 +111,7 @@ public class Compiler {
 
 	private void PrettyPrint(StringBuilder builder, IrInstr instr, string[] functions, string[] intrinsics) {
 		switch (instr.Kind) {
-			case IrInstr.IrKind.Phi:
+			case IrKind.Phi:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- Φ [");
 				for (int i = 1; i < instr.Params.Length; i += 2) {
@@ -120,24 +122,24 @@ public class Compiler {
 				}
 				builder.Append("]\n");
 				break;
-			case IrInstr.IrKind.BranchAlways:
+			case IrKind.BranchAlways:
 				builder.Append("br\n");
 				break;
-			case IrInstr.IrKind.BranchBool:
+			case IrKind.BranchBool:
 				builder.Append("br ");
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("?\n");
 				break;
-			case IrInstr.IrKind.LoadFunction:
-			case IrInstr.IrKind.Copy:
-			case IrInstr.IrKind.StoreLocal:
-			case IrInstr.IrKind.LoadLocal:
+			case IrKind.LoadFunction:
+			case IrKind.Copy:
+			case IrKind.StoreLocal:
+			case IrKind.LoadLocal:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
-			case IrInstr.IrKind.IntrinsicImpure:
+			case IrKind.IntrinsicImpure:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -148,7 +150,7 @@ public class Compiler {
 				}
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.CallImpure:
+			case IrKind.CallImpure:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -159,7 +161,7 @@ public class Compiler {
 				}
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.Call:
+			case IrKind.Call:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -170,12 +172,12 @@ public class Compiler {
 				}
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.Return:
+			case IrKind.Return:
 				builder.Append("return ");
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append("\n");
 				break;
-			case IrInstr.IrKind.LoadTupleSection:
+			case IrKind.LoadTupleSection:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -183,7 +185,7 @@ public class Compiler {
 				PrettyPrint(builder, instr[2]!, functions, intrinsics);
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.CreateTuple:
+			case IrKind.CreateTuple:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- (");
 				for (int i = 1; i < instr.Params.Length; i += 2) {
@@ -194,7 +196,7 @@ public class Compiler {
 				}
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.Intrinsic:
+			case IrKind.Intrinsic:
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
 				builder.Append(" <- ");
 				PrettyPrint(builder, instr[1]!, functions, intrinsics);
@@ -205,7 +207,7 @@ public class Compiler {
 				}
 				builder.Append(")\n");
 				break;
-			case IrInstr.IrKind.LoadArguments:
+			case IrKind.LoadArguments:
 				builder.Append("load arguments: (");
 				for (int i = 0; i < instr.Params.Length; i++) {
 					builder.Append(i == 0 ? "" : ", ");
@@ -250,11 +252,6 @@ public class Compiler {
 			writer.WriteLine(@$"n_locals{node.ID} [label=""{localText.ToString()}"",shape=""underline""]");
 			writer.WriteLine(@$"n{node.ID} -> n_locals{node.ID} [style=""dashed"",arrowhead=""onormal""]");
 		}
-		if (node.Frontier.Any()) {
-			var frontierText = string.Join(", ", node.Frontier.Select(b => b.ID));
-			writer.WriteLine(@$"n_frontier{node.ID} [label=""{frontierText.ToString()}"",shape=""insulator""]");
-			writer.WriteLine(@$"n{node.ID} -> n_frontier{node.ID} [style=""dashed"",arrowhead=""onormal""]");
-		}
 	}
 
 	private void DrawGraph(string funcName, IrBlock body, string[] functions, string[] intrinsics) {
@@ -289,7 +286,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetMem2RegIR(file);
+		IrResult instructions = GetCopyPropagatedIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -377,4 +374,7 @@ public class Compiler {
 
 	public IrResult GetMem2RegIR(string file) =>
 		Memoize(file, mem2regFiles, f => mem2reg.Transform(GetIR(f)));
+
+	public IrResult GetCopyPropagatedIR(string file) =>
+		Memoize(file, copyPropagateFiles, f => copyPropagator.Transform(GetMem2RegIR(f)));
 }
