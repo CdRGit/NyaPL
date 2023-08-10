@@ -25,14 +25,15 @@ namespace Nyapl;
 public class Compiler {
 	public Arguments Args { get; }
 
-	private Lexer           lexer        = new();
-	private Parser          parser       = new();
-	private Localizer       localizer;
-	private TypeChecker     typeChecker  = new();
-	private FlowAnalyzer    flowAnalyzer = new();
-	private IrGenerator     irGenerator  = new();
-	private Mem2Reg         mem2reg      = new();
-	private CopyPropagation copyPropagator = new();
+	private Lexer              lexer             = new();
+	private Parser             parser            = new();
+	private Localizer          localizer;
+	private TypeChecker        typeChecker       = new();
+	private FlowAnalyzer       flowAnalyzer      = new();
+	private IrGenerator        irGenerator       = new();
+	private Mem2Reg            mem2reg           = new();
+	private CopyPropagation    copyPropagator    = new();
+	private RegisterAllocation registerAllocator = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles          = new();
@@ -44,6 +45,7 @@ public class Compiler {
 	private Dictionary<string, IrResult>           generatedFiles     = new();
 	private Dictionary<string, IrResult>           mem2regFiles       = new();
 	private Dictionary<string, IrResult>           copyPropagateFiles = new();
+	private Dictionary<string, IrResult>           allocatedFiles     = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -286,7 +288,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetCopyPropagatedIR(file);
+		IrResult instructions = GetAllocatedIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -377,4 +379,7 @@ public class Compiler {
 
 	public IrResult GetCopyPropagatedIR(string file) =>
 		Memoize(file, copyPropagateFiles, f => copyPropagator.Transform(GetMem2RegIR(f)));
+
+	public IrResult GetAllocatedIR(string file) =>
+		Memoize(file, allocatedFiles, f => registerAllocator.Transform(GetCopyPropagatedIR(f)));
 }
