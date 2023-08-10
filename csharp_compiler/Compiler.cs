@@ -299,7 +299,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetPhiLessIR(file);
+		IrResult instructions = GetAllocatedIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {

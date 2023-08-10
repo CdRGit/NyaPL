@@ -45,6 +45,7 @@ public class PhiRemover {
 				case IrKind.Intrinsic:
 				case IrKind.IntrinsicImpure:
 				case IrKind.Call:
+				case IrKind.CallImpure:
 				case IrKind.Return:
 					block.AddInstr(instr);
 					break;
