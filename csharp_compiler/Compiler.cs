@@ -26,13 +26,19 @@ public class Compiler {
 	public Arguments Args { get; }
 
 	private Lexer              lexer             = new();
+
 	private Parser             parser            = new();
 	private Localizer          localizer;
+
 	private TypeChecker        typeChecker       = new();
 	private FlowAnalyzer       flowAnalyzer      = new();
+
 	private IrGenerator        irGenerator       = new();
+
 	private Mem2Reg            mem2reg           = new();
 	private CopyPropagation    copyPropagator    = new();
+
+	private PhiRemover         phiRemover        = new();
 	private RegisterAllocation registerAllocator = new();
 
 	private List<string> sourceFiles = new();
@@ -45,6 +51,7 @@ public class Compiler {
 	private Dictionary<string, IrResult>           generatedFiles     = new();
 	private Dictionary<string, IrResult>           mem2regFiles       = new();
 	private Dictionary<string, IrResult>           copyPropagateFiles = new();
+	private Dictionary<string, IrResult>           phiRemovedFiles    = new();
 	private Dictionary<string, IrResult>           allocatedFiles     = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
@@ -130,7 +137,11 @@ public class Compiler {
 			case IrKind.BranchBool:
 				builder.Append("br ");
 				PrettyPrint(builder, instr[0]!, functions, intrinsics);
-				builder.Append("?\n");
+				builder.Append("? ");
+				PrettyPrint(builder, instr[2]!, functions, intrinsics);
+				builder.Append(" : ");
+				PrettyPrint(builder, instr[1]!, functions, intrinsics);
+				builder.Append("\n");
 				break;
 			case IrKind.LoadFunction:
 			case IrKind.Copy:
@@ -288,7 +299,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetAllocatedIR(file);
+		IrResult instructions = GetPhiLessIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -380,6 +391,9 @@ public class Compiler {
 	public IrResult GetCopyPropagatedIR(string file) =>
 		Memoize(file, copyPropagateFiles, f => copyPropagator.Transform(GetMem2RegIR(f)));
 
+	public IrResult GetPhiLessIR(string file) =>
+		Memoize(file, phiRemovedFiles, f => phiRemover.Transform(GetCopyPropagatedIR(f)));
+
 	public IrResult GetAllocatedIR(string file) =>
-		Memoize(file, allocatedFiles, f => registerAllocator.Transform(GetCopyPropagatedIR(f)));
+		Memoize(file, allocatedFiles, f => registerAllocator.Transform(GetPhiLessIR(f)));
 }
