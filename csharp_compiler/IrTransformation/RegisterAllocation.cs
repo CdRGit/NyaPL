@@ -119,11 +119,7 @@ public class RegisterAllocation {
 		IrParam.Register GetReg(IrParam.Register reg) {
 			foreach (var existing in existingRegisters.Where(r => r.Size == reg.Size)) {
 				var lifetime = lifetimes[reg];
-				if (!overlaps[existing].Any(l => {
-						var overlap = l.Overlaps(lifetime);
-						Console.WriteLine($"Overlaps({lifetime}, {l}) = {overlap}");
-						return overlap;
-					})) {
+				if (!overlaps[existing].Any(l => l.Overlaps(lifetime))) {
 					overlaps[existing].Add(lifetimes[reg]);
 					return existing;
 				}

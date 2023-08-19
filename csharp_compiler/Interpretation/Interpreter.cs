@@ -61,7 +61,6 @@ public class Interpreter {
 						var _args = instr.Params.Skip(2).Select(p => GetValueFromParam(registers, functions, p)).ToArray();
 						switch (intrinsic) {
 							case IrOpKind.Add_signed:
-								Console.WriteLine(string.Join(", ", (IEnumerable<Value>)_args));
 								registers[idx] = new Value.Integer(KeepInRange(reg.Size, (ulong)(
 									(long)((_args[0] as Value.Integer)!.Value)
 									+

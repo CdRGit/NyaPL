@@ -365,7 +365,7 @@ public class Compiler {
 					accumulatedFunctions[function.Key] = function.Value;
 			}
 
-			if (Args.Simulate && false) {
+			if (Args.Simulate) {
 				Console.WriteLine("INTERPRETER GO:");
 				var returnCode = new Interpreter().Function(accumulatedFunctions.AsReadOnly(), "main", new Value[0]);
 				Console.WriteLine(returnCode);
