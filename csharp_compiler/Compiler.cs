@@ -354,9 +354,17 @@ public class Compiler {
 	public void Compile() {
 		try
 		{
-			// pretty-print all found sourceFiles
+			// pretty-print all found sourceFiles, then accumulate
+			var accumulatedFunctions = new Dictionary<string, IrBlock>();
 			foreach (var file in sourceFiles) {
 				PrettyPrint(file);
+				var result = GetAllocatedIR(file);
+				foreach (var function in result.Functions)
+					accumulatedFunctions[function.Key] = function.Value;
+			}
+
+			foreach (var function in accumulatedFunctions) {
+				Console.WriteLine(function);
 			}
 		}
 		catch (CompileError error) {
