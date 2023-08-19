@@ -20,11 +20,10 @@ fn fib(idx: i32): i32 {
 }
 
 fn [stdio] main(): i32 {
-	fn nested(): i32 {
-		return 30;
-	}
+	let count = 30;
+
 	let mut a = 0;
-	while (a != nested()) {
+	while (a != count) {
 		write_num(fib(a));
 		a = a + 1;
 	}
