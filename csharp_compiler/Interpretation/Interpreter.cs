@@ -67,6 +67,20 @@ public class Interpreter {
 									(long)((_args[1] as Value.Integer)!.Value)
 								)));
 								break;
+							case IrOpKind.Subtract_signed:
+								registers[idx] = new Value.Integer(KeepInRange(reg.Size, (ulong)(
+									(long)((_args[0] as Value.Integer)!.Value)
+									-
+									(long)((_args[1] as Value.Integer)!.Value)
+								)));
+								break;
+							case IrOpKind.Equal_integer:
+								registers[idx] = new Value.Bool(
+									(_args[0] as Value.Integer)!.Value
+									==
+									(_args[1] as Value.Integer)!.Value
+								);
+								break;
 							case IrOpKind.NotEq_integer:
 								registers[idx] = new Value.Bool(
 									(_args[0] as Value.Integer)!.Value

@@ -9,18 +9,31 @@ platform {
 	}
 }
 
+fn fib(idx: i32): i32 {
+	if idx == 0 { return 1; }
+	if idx == 1 { return 1; }
+
+	return fib(idx - 1) + fib(idx - 2);
+}
+
+fn fib_iter(idx: i32): i32 {
+	let mut (a, b) = (1, 1);
+	let mut i = 0;
+	while (i != idx) {
+		(a, b) = (b, a + b);
+		i = i + 1;
+	}
+	return a;
+}
+
 fn [stdio] main(): i32 {
 	fn nested(): i32 {
-		return 500;
+		return 30;
 	}
 	let mut a = 0;
-	let t = (a, nested());
 	while (a != nested()) {
-		write_num(a);
+		write_num(fib_iter(a));
 		a = a + 1;
 	}
-	let func = nested;
-	let another_copy = func;
-	let (deconstruct, _) = t;
-	return another_copy();
+	return 0;
 }
