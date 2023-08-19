@@ -363,8 +363,8 @@ public class Compiler {
 					accumulatedFunctions[function.Key] = function.Value;
 			}
 
-			foreach (var function in accumulatedFunctions) {
-				Console.WriteLine(function);
+			if (Args.Simulate) {
+				throw new Exception("TODO!");
 			}
 		}
 		catch (CompileError error) {
