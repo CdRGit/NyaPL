@@ -14,6 +14,7 @@ fn [stdio] main(): i32 {
 		return 500;
 	}
 	let mut a = 0;
+	let t = (a, nested());
 	while (a != nested()) {
 		write_num(a);
 		a = a + 1;
