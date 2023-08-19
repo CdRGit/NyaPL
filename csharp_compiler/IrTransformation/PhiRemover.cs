@@ -40,6 +40,7 @@ public class PhiRemover {
 				// trivial
 				case IrKind.Copy:
 				case IrKind.CreateTuple:
+				case IrKind.LoadTupleSection:
 				case IrKind.LoadFunction:
 				case IrKind.LoadArguments:
 				case IrKind.Intrinsic:

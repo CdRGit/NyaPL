@@ -18,7 +18,7 @@ public class Localizer {
 		Args = args;
 	}
 
-	static readonly Platform simulation = new() {
+	public static readonly Platform simulation = new() {
 		PointerSize = 8,
 		Tags = new[] {"simulator"},
 		Intrinsics = new() {

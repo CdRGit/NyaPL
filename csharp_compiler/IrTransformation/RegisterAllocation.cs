@@ -18,7 +18,10 @@ public class RegisterAllocation {
 
 		for (int i = 0; i < source.Instructions.Count; i++) {
 			var instr = source.Instructions[i];
-			block.AddInstr(new(instr.Kind, instr.Params.Select(p => (p is IrParam.Register r) ? replacements[r] : p).ToArray()));
+			block.AddInstr(new(instr.Kind, instr.Params.Select(p =>
+				(p is IrParam.Register r) ? replacements[r]
+				: (p is IrParam.Block b) ? new IrParam.Block(ctx.Replace(b.Blk))
+				: p).ToArray()));
 		}
 
 		ctx.Complete(source);
@@ -181,12 +184,21 @@ public class RegisterAllocation {
 			if (aliveForAllOf.Contains(other.initial.node) || aliveForAllOf.Contains(other.final.node)) return true;
 
 			// now comes the tricky part
-			// is my "final" before or equal to their "initial"?
+			// is my "final" after or equal to their "initial"?
 			if (final.node == other.initial.node) {
-				if (final.instr <= other.initial.instr) return true; // yeag
+				if (final.instr >= other.initial.instr) return true; // yeag
+			}
+			// do our "final"s match? if so we overlap for sure
+			if (final.node == other.final.node) {
+				if (final.instr == other.final.instr) return true; // yeag
+			}
+			// do our "initial"s match? if so we overlap for sure
+			if (initial.node == other.initial.node) {
+				if (initial.instr == other.initial.instr) return true; // yeag
 			}
 
 			if (tryOtherWayAround) return other.Overlaps(this, false); // try the other way around if we must
+
 
 			// done?
 			return false;

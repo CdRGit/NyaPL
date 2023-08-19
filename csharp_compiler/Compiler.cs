@@ -20,6 +20,8 @@ using Nyapl.FlowAnalysis;
 using Nyapl.IrGeneration;
 using Nyapl.IrTransformation;
 
+using Nyapl.Interpretation;
+
 namespace Nyapl;
 
 public class Compiler {
@@ -363,8 +365,10 @@ public class Compiler {
 					accumulatedFunctions[function.Key] = function.Value;
 			}
 
-			foreach (var function in accumulatedFunctions) {
-				Console.WriteLine(function);
+			if (Args.Simulate) {
+				Console.WriteLine("INTERPRETER GO:");
+				var returnCode = new Interpreter().Function(accumulatedFunctions.AsReadOnly(), "main", new Value[0]);
+				Console.WriteLine(returnCode);
 			}
 		}
 		catch (CompileError error) {
