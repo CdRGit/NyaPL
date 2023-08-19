@@ -13,9 +13,9 @@ fn [stdio] main(): i32 {
 	fn nested(): i32 {
 		return 500;
 	}
-	let tuple = (500 + 20, 200, nested());
 	let mut a = 0;
 	while (a != nested()) {
+		write_num(a);
 		a = a + 1;
 	}
 	let func = nested;

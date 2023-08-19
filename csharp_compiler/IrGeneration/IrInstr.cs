@@ -56,6 +56,12 @@ public abstract class IrParam {
 			Index = index;
 		}
 		public override string ToString() => $"Register({Size}, {Index})";
+
+		public class Dying : Register {
+			public Dying(ushort size, uint index) : base(size, index) {}
+
+			public override string ToString() => $"DyingRegister({Size}, {Index})";
+		}
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }
