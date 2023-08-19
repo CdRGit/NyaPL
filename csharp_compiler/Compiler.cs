@@ -245,7 +245,7 @@ public class Compiler {
 
 		labelText.Replace("\n", "\\n");
 
-		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}"",xlabel=""{node.ID}""{(node.HasReturn ? @", shape=""Msquare""" : "")}]");
+		writer.WriteLine(@$"n{node.ID} [label=""{labelText.ToString()}"",xlabel=""{node.ID}""{(node.HasReturn ? @", shape=""box""" : "")}]");
 		if (node.HasReturn) {
 			writer.WriteLine($"n{node.ID} -> return");
 		}
