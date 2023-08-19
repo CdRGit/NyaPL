@@ -64,6 +64,7 @@ public class CopyPropagation {
 				case IrKind.Call:
 				case IrKind.CallImpure:
 				case IrKind.CreateTuple:
+				case IrKind.LoadTupleSection:
 					block.AddInstr(SimplePropagate(instr, ctx));
 					break;
 				case IrKind.BranchAlways:

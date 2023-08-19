@@ -23,7 +23,7 @@ public class IrGenerator {
 						var offset = size;
 						size += reg.Size;
 						return new IrParam[] { reg, new IrParam.Offset(offset) };
-					});
+					}).ToArray();
 					block.AddInstr(new(
 						IrKind.CreateTuple,
 						new [] { ctx.GetNewRegister(size) }.Concat(registers).ToArray()

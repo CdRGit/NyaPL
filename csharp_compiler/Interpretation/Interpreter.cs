@@ -120,6 +120,14 @@ public class Interpreter {
 						registers[idx] = new Value.Tuple(values.AsReadOnly());
 					}
 					break;
+				case IrKind.LoadTupleSection:
+					{
+						var idx = (instr[0] as IrParam.Register)!.Index;
+						var val = GetValueFromParam(registers, functions, instr[1]!);
+						var offset = (instr[2] as IrParam.Offset)!.Value;
+						registers[idx] = (val as Value.Tuple)!.Values[offset];
+					}
+					break;
 				default:
 					throw new Exception($"Can't interpret '{instr}' yet");
 			}

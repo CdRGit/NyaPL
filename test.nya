@@ -21,5 +21,6 @@ fn [stdio] main(): i32 {
 	}
 	let func = nested;
 	let another_copy = func;
+	let (deconstruct, _) = t;
 	return another_copy();
 }
