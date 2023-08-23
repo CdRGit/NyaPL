@@ -14,6 +14,7 @@ using Nyapl.Parsing.Tree;
 using Nyapl.Localizing;
 
 using Nyapl.Typing;
+using Nyapl.Typing.Types;
 
 using Nyapl.FlowAnalysis;
 
@@ -41,7 +42,6 @@ public class Compiler {
 	private CopyPropagation    copyPropagator    = new();
 
 	private PhiRemover         phiRemover        = new();
-	private RegisterAllocation registerAllocator = new();
 
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles          = new();
@@ -54,7 +54,6 @@ public class Compiler {
 	private Dictionary<string, IrResult>           mem2regFiles       = new();
 	private Dictionary<string, IrResult>           copyPropagateFiles = new();
 	private Dictionary<string, IrResult>           phiRemovedFiles    = new();
-	private Dictionary<string, IrResult>           allocatedFiles     = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -72,16 +71,71 @@ public class Compiler {
 		foreach (var child in node.GetChildren()) PrettyPrint(child, depth + 1);
 	}
 
+	private void PrettyPrint(StringBuilder builder, Typ type) {
+		switch (type) {
+			case Intrinsic i: {
+					switch (i.Type) {
+						case IntrinsicType.I32:
+							builder.Append("i32");
+							break;
+						case IntrinsicType.Bool:
+							builder.Append("bool");
+							break;
+						default:
+							throw new Exception($"PrettyPrint(IntrinsicType.{i.Type}) not implemented yet");
+					}
+				} break;
+			case Apply a: {
+					switch (a.BaseType) {
+						case Intrinsic i:
+							switch (i.Type) {
+								case IntrinsicType.Tuple: {
+									builder.Append("(");
+									bool firstIteration = true;
+									foreach (var param in a.ParameterTypes) {
+										if (!firstIteration)
+											builder.Append(", ");
+										PrettyPrint(builder, param);
+										firstIteration = false;
+									}
+									builder.Append(")");
+									} break;
+								default:
+									throw new Exception($"PrettyPrint(Apply.BaseType: IntrinsicType.{i.Type}) not implemented yet");
+							}
+							break;
+						case Function f: {
+							builder.Append("fn ");
+							builder.Append($"[{string.Join(", ", f.Effects)}]");
+							builder.Append("(");
+							bool firstIteration = true;
+							foreach (var param in a.ParameterTypes) {
+								if (!firstIteration)
+									builder.Append(", ");
+								PrettyPrint(builder, param);
+								firstIteration = false;
+							}
+							builder.Append(")");
+							} break;
+						default:
+							throw new Exception($"PrettyPrint(Apply.BaseType: {a.BaseType}) not implemented yet");
+					}
+				} break;
+			default:
+				throw new Exception($"PrettyPrint({type}) not implemented yet");
+		}
+	}
+
 	readonly static Dictionary<IrOpKind, string> intrinsicOps = new() {
-		{IrOpKind.Multiply_signed, "multiply_signed"},
-		{IrOpKind.Divide_signed,   "divide_signed"},
-		{IrOpKind.Modulo_signed,   "modulo_signed"},
+		{IrOpKind.Multiply, "multiply"},
+		{IrOpKind.Divide,   "divide"},
+		{IrOpKind.Modulo,   "modulo"},
 
-		{IrOpKind.Add_signed,      "add_signed"},
-		{IrOpKind.Subtract_signed, "subtract_signed"},
+		{IrOpKind.Add,      "add"},
+		{IrOpKind.Subtract, "subtract"},
 
-		{IrOpKind.Equal_integer,   "equal_integer"},
-		{IrOpKind.NotEq_integer,   "not_equal_integer"},
+		{IrOpKind.Equal,   "equal"},
+		{IrOpKind.NotEq,   "not_equal"},
 	};
 	private void PrettyPrint(StringBuilder builder, IrParam param, string[] functions, string[] intrinsics) {
 		switch (param) {
@@ -89,7 +143,9 @@ public class Compiler {
 				builder.Append($"block.{b.Blk.ID}");
 				break;
 			case IrParam.Local l:
-				builder.Append($"local[{l.Name}:{l.Size:D2}]");
+				builder.Append($"`local[{l.Name}]: ");
+				PrettyPrint(builder, l.Type);
+				builder.Append($"`");
 				break;
 			case IrParam.Int i:
 				builder.Append($"{i.Value}");
@@ -98,7 +154,9 @@ public class Compiler {
 				builder.Append($"{b.Value}");
 				break;
 			case IrParam.Register r:
-				builder.Append($"r{r.Index:D2}:{r.Size:D2}");
+				builder.Append($"`r{r.Index:D2}: ");
+				PrettyPrint(builder, r.Type);
+				builder.Append($"`");
 				break;
 			case IrParam.Function f:
 				builder.Append($"{functions[f.Index]}");
@@ -301,7 +359,7 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetAllocatedIR(file);
+		IrResult instructions = GetCopyPropagatedIR(file);
 		var functions = AST.Functions.Select(f => f.Name).ToArray();
 		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
 		foreach (var func in instructions.Functions.Keys) {
@@ -360,7 +418,7 @@ public class Compiler {
 			var accumulatedFunctions = new Dictionary<string, IrBlock>();
 			foreach (var file in sourceFiles) {
 				PrettyPrint(file);
-				var result = GetAllocatedIR(file);
+				var result = GetCopyPropagatedIR(file);
 				foreach (var function in result.Functions)
 					accumulatedFunctions[function.Key] = function.Value;
 			}
@@ -405,7 +463,4 @@ public class Compiler {
 
 	public IrResult GetPhiLessIR(string file) =>
 		Memoize(file, phiRemovedFiles, f => phiRemover.Transform(GetCopyPropagatedIR(f)));
-
-	public IrResult GetAllocatedIR(string file) =>
-		Memoize(file, allocatedFiles, f => registerAllocator.Transform(GetPhiLessIR(f)));
 }

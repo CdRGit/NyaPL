@@ -1,5 +1,7 @@
 using System.Linq;
 
+using Nyapl.Typing.Types;
+
 namespace Nyapl.IrGeneration;
 
 public readonly struct IrInstr {
@@ -41,27 +43,21 @@ public enum IrKind {
 public abstract class IrParam {
 	public class Local : IrParam {
 		public string Name { get; }
-		public ushort Size { get; }
-		public Local(string name, ushort size) {
+		public Typ Type { get; }
+		public Local(string name, Typ type) {
 			Name = name;
-			Size = size;
+			Type = type;
 		}
-		public override string ToString() => $"Local({Size}, {Name})";
+		public override string ToString() => $"Local({Type}, {Name})";
 	}
 	public class Register : IrParam {
-		public ushort Size { get; }
+		public Typ Type { get; }
 		public uint Index { get; }
-		public Register(ushort size, uint index) {
-			Size = size;
+		public Register(Typ type, uint index) {
+			Type = type;
 			Index = index;
 		}
-		public override string ToString() => $"Register({Size}, {Index})";
-
-		public class Dying : Register {
-			public Dying(ushort size, uint index) : base(size, index) {}
-
-			public override string ToString() => $"DyingRegister({Size}, {Index})";
-		}
+		public override string ToString() => $"Register({Type}, {Index})";
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }
@@ -122,21 +118,18 @@ public abstract class IrParam {
 }
 
 public enum IrOpKind {
-	Multiply_signed,
-	Divide_signed,
-	Modulo_signed,
+	Multiply,
+	Divide,
+	Modulo,
 
-	Add_signed,
-	Subtract_signed,
+	Add,
+	Subtract,
 
-	Equal_integer,
-	NotEq_integer,
+	Equal,
+	NotEq,
 
-	Equal_bool,
-	NotEq_bool,
+	Not,
 
-	Not_bool,
-
-	Negative_signed,
-	Positive_signed,
+	Negative,
+	Positive,
 }

@@ -16,24 +16,21 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, ExpressionNode expression) {
 		switch (expression) {
 			case TupleNode tuple: {
-					ushort size = 0;
-					var registers = tuple.Values.SelectMany(v => {
+					var registers = tuple.Values.Select(v => {
 						block = Generate(block, ctx, v);
 						var reg = ctx.GetPreviousRegister();
-						var offset = size;
-						size += reg.Size;
-						return new IrParam[] { reg, new IrParam.Offset(offset) };
+						return (IrParam)reg;
 					}).ToArray();
 					block.AddInstr(new(
 						IrKind.CreateTuple,
-						new [] { ctx.GetNewRegister(size) }.Concat(registers).ToArray()
+						new [] { ctx.GetNewRegister(tuple.Type!) }.Concat(registers).ToArray()
 					));
 					return block;
 				}
 			case BoolLiteralNode boolean: {
 					block.AddInstr(new(
 						IrKind.Copy,
-						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.boolean)),
+						ctx.GetNewRegister(boolean.Type!),
 						new IrParam.Bool(boolean.Value)
 					));
 					return block;
@@ -41,7 +38,7 @@ public class IrGenerator {
 			case IntLiteralNode integer: {
 					block.AddInstr(new(
 						IrKind.Copy,
-						ctx.GetNewRegister(ctx.TypeCtx.GetSize(TypeChecker.i32)),
+						ctx.GetNewRegister(integer.Type!),
 						new IrParam.Int(integer.Value)
 					));
 					return block;
@@ -56,15 +53,15 @@ public class IrGenerator {
 						// we are looking up a function
 						block.AddInstr(new(
 							IrKind.LoadFunction,
-							ctx.GetNewRegister(ctx.Platform.PointerSize),
+							ctx.GetNewRegister(lookup.Type!),
 							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
 						));
 					} else {
 						// variable found
 						block.AddInstr(new(
 							IrKind.LoadLocal,
-							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							new IrParam.Local(lookup.Name, ctx.TypeCtx.GetSize(lookup.Type!))
+							ctx.GetNewRegister(lookup.Type!),
+							new IrParam.Local(lookup.Name, lookup.Type!)
 						));
 					}
 					return block;
@@ -84,7 +81,7 @@ public class IrGenerator {
 
 					block.AddInstr(new(
 						pure ? IrKind.Call : IrKind.CallImpure,
-						new [] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseReg }.Concat(argRegs).ToArray()
+						new [] { ctx.GetNewRegister(call.Type!), baseReg }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -103,7 +100,7 @@ public class IrGenerator {
 
 					block.AddInstr(new(
 						pure ? IrKind.Call : IrKind.CallImpure,
-						new IrParam[] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseIntrin }.Concat(argRegs).ToArray()
+						new IrParam[] { ctx.GetNewRegister(call.Type!), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -115,7 +112,7 @@ public class IrGenerator {
 					var rightReg = ctx.GetPreviousRegister();
 					block.AddInstr(new(
 						IrKind.Intrinsic,
-						ctx.GetNewRegister(size),
+						ctx.GetNewRegister(bin.Type!),
 						ctx.TypeCtx.GetOp(bin.LExpr.Type!, bin.RExpr.Type!, bin.OP),
 						leftReg,
 						rightReg
@@ -128,7 +125,7 @@ public class IrGenerator {
 					var reg = ctx.GetPreviousRegister();
 					block.AddInstr(new(
 						IrKind.Intrinsic,
-						ctx.GetNewRegister(size),
+						ctx.GetNewRegister(un.Type!),
 						ctx.TypeCtx.GetOp(un.Expr.Type!, un.OP),
 						reg
 					));
@@ -149,15 +146,15 @@ public class IrGenerator {
 						// we are looking up a function
 						block.AddInstr(new(
 							IrKind.LoadFunction,
-							ctx.GetNewRegister(ctx.Platform.PointerSize),
+							ctx.GetNewRegister(lookup.Type!),
 							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
 						));
 					} else {
 						// variable found
 						block.AddInstr(new(
 							IrKind.LoadLocal,
-							ctx.GetNewRegister(ctx.TypeCtx.GetSize(lookup.Type!)),
-							new IrParam.Local(lookup.Name, ctx.TypeCtx.GetSize(lookup.Type!))
+							ctx.GetNewRegister(lookup.Type!),
+							new IrParam.Local(lookup.Name, lookup.Type!)
 						));
 					}
 					return block;
@@ -173,25 +170,22 @@ public class IrGenerator {
 			case NamedLValueNode named: {
 					block.AddInstr(new(
 						IrKind.StoreLocal,
-						new IrParam.Local(named.Name, sourceRegister.Size),
+						new IrParam.Local(named.Name, sourceRegister.Type),
 						sourceRegister
 					));
 					return block;
 				}
 			case TupleLValueNode tuple: {
-					ulong rollingOffset = 0;
 					for (int i = 0; i < tuple.Children.Children.Count; i++) {
 						var child = tuple.Children.Children[i];
-						var size = ctx.TypeCtx.GetSize(child.Type!);
-						var reg = ctx.GetNewRegister(size);
+						var reg = ctx.GetNewRegister(child.Type!);
 						block.AddInstr(new(
 							IrKind.LoadTupleSection,
 							reg,
 							sourceRegister,
-							new IrParam.Offset(rollingOffset)
+							new IrParam.Offset((ulong)i)
 						));
 						block = Generate(block, ctx, child, reg);
-						rollingOffset += size;
 					}
 					return block;
 				}
@@ -203,7 +197,7 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, DestructureItemNode item, IrParam.Register tupReg, ulong offset) {
 		switch (item) {
 			case NamedDestructureNode named: {
-				var reg = ctx.GetNewRegister(ctx.TypeCtx.GetSize(named.Type!));
+				var reg = ctx.GetNewRegister(named.Type!);
 				block.AddInstr(new(
 					IrKind.LoadTupleSection,
 					reg,
@@ -212,17 +206,23 @@ public class IrGenerator {
 				));
 				block.AddInstr(new(
 					IrKind.StoreLocal,
-					new IrParam.Local(named.Name, reg.Size),
+					new IrParam.Local(named.Name, reg.Type),
 					reg
 				));
 				return block;
 			}
 		case HoleDestructureNode: return block;
 		case TupleDestructureNode tuple: {
-				ulong newOffset = offset;
-				foreach (var child in tuple.Children) {
-					block = Generate(block, ctx, child, tupReg, newOffset);
-					newOffset += ctx.TypeCtx.GetSize(child.Type!);
+				var newTupReg = ctx.GetNewRegister(tuple.Type!);
+				block.AddInstr(new(
+					IrKind.LoadTupleSection,
+					newTupReg,
+					tupReg,
+					new IrParam.Offset(offset)
+				));
+				for (int i = 0; i < tuple.Children.Children.Count; i++) {
+					var child = tuple.Children.Children[i];
+					block = Generate(block, ctx, child, newTupReg, (ulong)i);
 				}
 				return block;
 			}
@@ -238,7 +238,7 @@ public class IrGenerator {
 				block = Generate(block, ctx, v.Expression);
 				block.AddInstr(new(
 					IrKind.StoreLocal,
-					new IrParam.Local(v.Name, ctx.GetPreviousRegister().Size),
+					new IrParam.Local(v.Name, ctx.GetPreviousRegister().Type),
 					ctx.GetPreviousRegister()
 				));
 				return block;
@@ -252,11 +252,9 @@ public class IrGenerator {
 			case DestructureNode d: {
 				block = Generate(block, ctx, d.Expression);
 				var tupReg = ctx.GetPreviousRegister();
-				ulong rollingOffset = 0;
 				for (int i = 0; i < d.Items.Children.Count; i++) {
 					var item = d.Items.Children[i];
-					block = Generate(block, ctx, item, tupReg, rollingOffset);
-					rollingOffset += ctx.TypeCtx.GetSize(item.Type!);
+					block = Generate(block, ctx, item, tupReg, (ulong)i);
 				}
 				return block;
 			}
@@ -322,7 +320,7 @@ public class IrGenerator {
 
 					block.AddInstr(new(
 						pure ? IrKind.Call : IrKind.CallImpure,
-						new [] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseReg }.Concat(argRegs).ToArray()
+						new [] { ctx.GetNewRegister(call.Type!), baseReg }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -339,7 +337,7 @@ public class IrGenerator {
 
 					block.AddInstr(new(
 						IrKind.IntrinsicImpure,
-						new IrParam[] { ctx.GetNewRegister(ctx.TypeCtx.GetSize(call.Type!)), baseIntrin }.Concat(argRegs).ToArray()
+						new IrParam[] { ctx.GetNewRegister(call.Type!), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
@@ -418,7 +416,7 @@ public class IrGenerator {
 
 	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
 		// move arguments to registers
-		var argList = function.Parameters.Select(p => ctx.GetNewRegister(ctx.TypeCtx.GetSize(p.Type.Type!))).ToArray();
+		var argList = function.Parameters.Select(p => ctx.GetNewRegister(p.Type.Type!)).ToArray();
 		block.AddInstr(new(
 			IrKind.LoadArguments,
 			argList
@@ -427,7 +425,7 @@ public class IrGenerator {
 			var param = function.Parameters.Children[i];
 			block.AddInstr(new(
 				IrKind.StoreLocal,
-				new IrParam.Local(param.Name, argList[i].Size),
+				new IrParam.Local(param.Name, argList[i].Type),
 				argList[i]
 			));
 		}
@@ -482,7 +480,7 @@ public class IrGenerator {
 		public uint RegisterCount { get => currentRegister; }
 		private IrParam.Register? previousRegister;
 
-		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, currentRegister++);
+		public IrParam.Register GetNewRegister(Typ type) => previousRegister = new IrParam.Register(type, currentRegister++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 	}
 }

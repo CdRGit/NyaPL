@@ -482,22 +482,22 @@ public class TypeChecker {
 
 		// TODO rework the way operators work so I can make tuples and functions have equality (assuming all types in the tuple have equality, for functions it doesn't matter)
 		List<(BinOpKind, Typ, Typ, Typ, IrOpKind)> binOperators = new() {
-			(BinOpKind.Add,      i32, i32, i32, IrOpKind.Add_signed),
-			(BinOpKind.Subtract, i32, i32, i32, IrOpKind.Subtract_signed),
-			(BinOpKind.Multiply, i32, i32, i32, IrOpKind.Multiply_signed),
-			(BinOpKind.Divide,   i32, i32, i32, IrOpKind.Divide_signed),
-			(BinOpKind.Modulo,   i32, i32, i32, IrOpKind.Modulo_signed),
+			(BinOpKind.Add,      i32, i32, i32, IrOpKind.Add),
+			(BinOpKind.Subtract, i32, i32, i32, IrOpKind.Subtract),
+			(BinOpKind.Multiply, i32, i32, i32, IrOpKind.Multiply),
+			(BinOpKind.Divide,   i32, i32, i32, IrOpKind.Divide),
+			(BinOpKind.Modulo,   i32, i32, i32, IrOpKind.Modulo),
 
-			(BinOpKind.Equal,    i32, i32, boolean, IrOpKind.Equal_integer),
-			(BinOpKind.NotEq,    i32, i32, boolean, IrOpKind.NotEq_integer),
+			(BinOpKind.Equal,    i32, i32, boolean, IrOpKind.Equal),
+			(BinOpKind.NotEq,    i32, i32, boolean, IrOpKind.NotEq),
 
-			(BinOpKind.Equal,    boolean, boolean, boolean, IrOpKind.Equal_bool),
-			(BinOpKind.NotEq,    boolean, boolean, boolean, IrOpKind.NotEq_bool),
+			(BinOpKind.Equal,    boolean, boolean, boolean, IrOpKind.Equal),
+			(BinOpKind.NotEq,    boolean, boolean, boolean, IrOpKind.NotEq),
 		};
 		List<(UnOpKind, Typ, Typ, IrOpKind)> unOperators = new() {
-			(UnOpKind.Not,      boolean, boolean, IrOpKind.Not_bool),
-			(UnOpKind.Positive, i32, i32, IrOpKind.Positive_signed),
-			(UnOpKind.Negative, i32, i32, IrOpKind.Negative_signed),
+			(UnOpKind.Not,      boolean, boolean, IrOpKind.Not),
+			(UnOpKind.Positive, i32, i32, IrOpKind.Positive),
+			(UnOpKind.Negative, i32, i32, IrOpKind.Negative),
 		};
 
 		public IrParam.IntrinsicOp GetOp(Typ left, Typ right, BinOpKind kind)
