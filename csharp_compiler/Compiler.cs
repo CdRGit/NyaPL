@@ -41,8 +41,6 @@ public class Compiler {
 	private Mem2Reg            mem2reg           = new();
 	private CopyPropagation    copyPropagator    = new();
 
-	private PhiRemover         phiRemover        = new();
-
 	private List<string> sourceFiles = new();
 	private Dictionary<string, string>             readFiles          = new();
 	private Dictionary<string, TokenList>          lexedFiles         = new();
@@ -53,7 +51,6 @@ public class Compiler {
 	private Dictionary<string, IrResult>           generatedFiles     = new();
 	private Dictionary<string, IrResult>           mem2regFiles       = new();
 	private Dictionary<string, IrResult>           copyPropagateFiles = new();
-	private Dictionary<string, IrResult>           phiRemovedFiles    = new();
 
 	private static T Memoize<T>(string file, Dictionary<string, T> memory, Func<string, T> generator) {
 		if (!memory.ContainsKey(file)) memory[file] = generator(file);
@@ -460,7 +457,4 @@ public class Compiler {
 
 	public IrResult GetCopyPropagatedIR(string file) =>
 		Memoize(file, copyPropagateFiles, f => copyPropagator.Transform(GetMem2RegIR(f)));
-
-	public IrResult GetPhiLessIR(string file) =>
-		Memoize(file, phiRemovedFiles, f => phiRemover.Transform(GetCopyPropagatedIR(f)));
 }
