@@ -422,7 +422,7 @@ public class Compiler {
 					accumulatedFunctions[function.Key] = function.Value;
 			}
 
-			platform!.Value.CodeGenerator.Generate(Args.OutFile);
+			platform!.Value.CodeGenerator.Generate(Args.OutFile, accumulatedFunctions.AsReadOnly());
 		}
 		catch (CompileError error) {
 			ReportError(error, 9);
