@@ -791,6 +791,7 @@ public class TypeChecker {
 
 		public void PrintGlobals() => Console.WriteLine("Globals:\n" + variables);
 
+		/*
 		public ushort GetSize(Typ type) {
 			if (type is Intrinsic i) {
 				switch (i.Type) {
@@ -818,5 +819,6 @@ public class TypeChecker {
 			}
 			throw new Exception($"Cannot get size for type: {type.GetType().Name}");
 		}
+		*/
 	}
 }

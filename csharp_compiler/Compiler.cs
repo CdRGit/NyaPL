@@ -413,18 +413,16 @@ public class Compiler {
 		{
 			// pretty-print all found sourceFiles, then accumulate
 			var accumulatedFunctions = new Dictionary<string, IrBlock>();
+			Localizer.Platform? platform = null;
 			foreach (var file in sourceFiles) {
 				PrettyPrint(file);
 				var result = GetCopyPropagatedIR(file);
+				platform = result.Platform;
 				foreach (var function in result.Functions)
 					accumulatedFunctions[function.Key] = function.Value;
 			}
 
-			if (Args.Simulate) {
-				Console.WriteLine("INTERPRETER GO:");
-				var returnCode = new Interpreter().Function(accumulatedFunctions.AsReadOnly(), "main", new Value[0]);
-				Console.WriteLine(returnCode);
-			}
+			platform!.Value.CodeGenerator.Generate(Args.OutFile);
 		}
 		catch (CompileError error) {
 			ReportError(error, 9);

@@ -105,7 +105,6 @@ public class IrGenerator {
 					return block;
 				}
 			case BinOpNode bin: {
-					var size = ctx.TypeCtx.GetSize(bin.Type!);
 					block = Generate(block, ctx, bin.LExpr);
 					var leftReg = ctx.GetPreviousRegister();
 					block = Generate(block, ctx, bin.RExpr);
@@ -120,7 +119,6 @@ public class IrGenerator {
 					return block;
 				}
 			case UnOpNode un: {
-					var size = ctx.TypeCtx.GetSize(un.Type!);
 					block = Generate(block, ctx, un.Expr);
 					var reg = ctx.GetPreviousRegister();
 					block.AddInstr(new(
