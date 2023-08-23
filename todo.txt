@@ -1,3 +1,9 @@
+- add types to IR
+- convert IR to linux_x86_64 MIR
+- convert linux_x86_64 MIR to linux_x86_64 ASM
+- assemble the assembly code
+
+// DONE:
 There are definitions of m in 0, 3, 4, and 5. That means we need to place PHIs at DF+({0, 3, 4, 5}), where DF+ is the iterated dominance frontier of those blocks. The iterated dominance frontier is the transitive closure of the DF; this means that it is the union of the DFs of all of those blocks and all blocks in the DFs of their DFs and so on. Basically, you compute the DFs of all of those blocks; the result of that computation is another set of blocks. You add all of those blocks back to the starting set, and you keep going until nothing changes.
 
 So, in this case, 

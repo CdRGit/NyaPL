@@ -29,6 +29,8 @@ public class Interpreter {
 	}
 
 	public Value Function(ReadOnlyDictionary<string, IrBlock> functions, string name, Value[] args) {
+		throw new Exception("TODO!");
+/*
 		Dictionary<uint, Value> registers = new();
 
 		var current = functions[name];
@@ -145,7 +147,7 @@ public class Interpreter {
 				default:
 					throw new Exception($"Can't interpret '{instr}' yet");
 			}
-		}
+		}*/
 	}
 }
 

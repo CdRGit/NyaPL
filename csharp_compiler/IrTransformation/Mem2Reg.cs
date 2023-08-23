@@ -3,6 +3,8 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
+using Nyapl.Typing.Types;
+
 using Nyapl.IrGeneration;
 
 namespace Nyapl.IrTransformation;
@@ -65,8 +67,8 @@ public class Mem2Reg {
 		return frontiers.ToDictionary(p => p.Key, p => p.Value.AsReadOnly()).AsReadOnly();
 	}
 
-	private ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> CalculateVariables(ReadOnlyCollection<IrBlock> nodes) {
-		var variables = new Dictionary<string, (ushort, List<(IrBlock, IrParam.Register)>)>();
+	private ReadOnlyDictionary<string, (Typ, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> CalculateVariables(ReadOnlyCollection<IrBlock> nodes) {
+		var variables = new Dictionary<string, (Typ, List<(IrBlock, IrParam.Register)>)>();
 
 		foreach (var b in nodes) {
 			foreach (var instr in b.Instructions) {
@@ -74,7 +76,7 @@ public class Mem2Reg {
 					var name = (instr[0] as IrParam.Local)!.Name;
 
 					if (!variables.ContainsKey(name))
-						variables[name] = ((instr[0] as IrParam.Local)!.Size, new());
+						variables[name] = ((instr[0] as IrParam.Local)!.Type, new());
 
 					var idx = variables[name].Item2.IndexOf(variables[name].Item2.FirstOrDefault(blk => blk.Item1 == b));
 
@@ -92,7 +94,7 @@ public class Mem2Reg {
 	private ReadOnlyCollection<IrBlock> CalculateRequiredPhiFunctions(
 		ReadOnlyCollection<IrBlock> nodes,
 		ReadOnlyDictionary<int, ReadOnlyCollection<IrBlock>> frontiers,
-		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
+		ReadOnlyDictionary<string, (Typ, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
 		string variable
 	) {
 		// calculate DF+
@@ -117,13 +119,13 @@ public class Mem2Reg {
 		return iteratedDominanceFrontier.ToList().AsReadOnly();
 	}
 
-	private ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> PropagateVariables(
+	private ReadOnlyDictionary<string, (Typ, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> PropagateVariables(
 		ReadOnlyCollection<IrBlock> nodes,
-		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
+		ReadOnlyDictionary<string, (Typ, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> variableDeclarations,
 		ReadOnlyCollection<(string Key, ReadOnlyCollection<(IrBlock b, IrParam.Register reg)> Value)> phiFunctions,
 		IrBlock entry
 	) {
-		var propagated = new Dictionary<string, (ushort, List<(IrBlock, IrParam.Register)>)>();
+		var propagated = new Dictionary<string, (Typ, List<(IrBlock, IrParam.Register)>)>();
 
 		foreach (var p in variableDeclarations)
 			propagated.Add(p.Key, (p.Value.Item1, p.Value.Item2.ToList()));
@@ -162,7 +164,7 @@ public class Mem2Reg {
 	private IrBlock Transform(
 		Context ctx,
 		IrBlock node,
-		ReadOnlyDictionary<string, (ushort, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> propagatedVariables,
+		ReadOnlyDictionary<string, (Typ, ReadOnlyCollection<(IrBlock, IrParam.Register)>)> propagatedVariables,
 		ReadOnlyCollection<(string Key, ReadOnlyCollection<(IrBlock b, IrParam.Register reg)> Value)> phiFunctions
 	) {
 		if (ctx.Transformed(node)) return ctx.Replace(node); // early return for already processed nodes
@@ -175,7 +177,7 @@ public class Mem2Reg {
 				if (pair.b.ID == node.ID) {
 					// relevant for us
 					// the register was already chosen
-					ctx.SetLocal(new (phi.Key, pair.reg.Size), pair.reg);
+					ctx.SetLocal(new (phi.Key, pair.reg.Type), pair.reg);
 					List<IrParam> arguments = new();
 					arguments.Add(pair.reg);
 					foreach (var i in node.Incoming) {
@@ -328,7 +330,7 @@ public class Mem2Reg {
 		public uint UsedRegisters { get; private set; }
 		private IrParam.Register? previousRegister;
 
-		public IrParam.Register GetNewRegister(ushort size) => previousRegister = new IrParam.Register(size, UsedRegisters++);
+		public IrParam.Register GetNewRegister(Typ type) => previousRegister = new IrParam.Register(type, UsedRegisters++);
 		public IrParam.Register GetPreviousRegister() => previousRegister ?? throw new Exception("no previous register");
 	}
 }
