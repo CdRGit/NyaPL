@@ -88,18 +88,18 @@ public abstract class IrParam {
 		public override string ToString() => $"Int({Value})";
 	}
 	public class Intrinsic : IrParam {
-		public ulong Index { get; }
-		public Intrinsic(ulong index) {
-			Index = index;
+		public string Name { get; }
+		public Intrinsic(string name) {
+			Name = name;
 		}
-		public override string ToString() => $"Intrinsic({Index})";
+		public override string ToString() => $"Intrinsic({Name})";
 	}
 	public class Function : IrParam {
-		public ulong Index { get; }
-		public Function(ulong index) {
-			Index = index;
+		public string Name { get; }
+		public Function(string name) {
+			Name = name;
 		}
-		public override string ToString() => $"Function({Index})";
+		public override string ToString() => $"Function({Name})";
 	}
 	public class Block : IrParam {
 		public IrBlock Blk { get; }

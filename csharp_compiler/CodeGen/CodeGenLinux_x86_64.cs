@@ -1,15 +1,107 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+
+using Nyapl.Typing.Types;
 
 using Nyapl.IrGeneration;
 
 namespace Nyapl.CodeGen;
 
 public class CodeGenLinux_x86_64 : ICodeGen {
+	class VSDRLA_Context {
+		uint registersInUse = 0;
+		Dictionary<uint, IrParam.Register[]> tuples = new();
+
+		Dictionary<uint, IrParam.Register> replacements = new();
+
+		public IrParam.Register MakeNewRegister(Typ t) => new(t, registersInUse++);
+
+		public void SetTuple(IrParam.Register tuplereg, IEnumerable<IrParam.Register> parameters) {
+			tuples[tuplereg.Index] = parameters.ToArray();
+		}
+
+		public IEnumerable<IrParam.Register> SimplifyRegister(IrParam.Register register) {
+			if (tuples.ContainsKey(register.Index)) return tuples[register.Index];
+			return new[] { (ReplaceRegister(register) as IrParam.Register)! };
+		}
+
+		public IrParam ReplaceRegister(IrParam param) {
+			if (param is IrParam.Register r) {
+				if (replacements.ContainsKey(r.Index)) {
+					return replacements[r.Index];
+				} else {
+					return replacements[r.Index] = MakeNewRegister(r.Type);
+				}
+			} else return param;
+		}
+		public IrInstr ReplaceRegisters(IrInstr instr) => new(instr.Kind, instr.Params.Select(i => ReplaceRegister(i)).ToArray());
+	}
+
+	private IEnumerable<IrInstr> VerySimpleDumbRegisterLoweringAlgorithm(IrInstr instr, VSDRLA_Context ctx, Func<IrBlock, IrBlock> replace) {
+		switch (instr.Kind) {
+			case IrKind.LoadArguments:
+				if (instr.Params.Length != 0) throw new Exception("VSDRLA for arguments has not been implemented yet, skill issue ♡");
+				yield return instr;
+				yield break;
+			case IrKind.CreateTuple: {
+				var args = instr.Params.Skip(1).SelectMany(p => ctx.SimplifyRegister((p as IrParam.Register)!));
+				ctx.SetTuple((instr[0] as IrParam.Register)!, args);
+				yield break;
+			}
+			case IrKind.LoadTupleSection: {
+				var baseReg = (instr[1] as IrParam.Register)!;
+				var valReg = ctx.SimplifyRegister(baseReg).ToArray()[(instr[2] as IrParam.Offset)!.Value];
+				var destReg = ctx.ReplaceRegister((instr[0] as IrParam.Register)!);
+				yield return new(IrKind.Copy, destReg, valReg);
+				yield break;
+			}
+			case IrKind.Return: {
+				var dest = (instr[0] as IrParam.Register)!;
+				switch (dest.Type) {
+					case Intrinsic i: {
+							switch (i.Type) {
+								case IntrinsicType.I32:
+									yield return ctx.ReplaceRegisters(instr);
+									break;
+								default:
+									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
+							}
+						} break;
+					default:
+						throw new Exception($"VSDRLA for type '{dest.Type}' not implemented yet");
+				}
+				yield break;
+			}
+			case IrKind.Copy: {
+				var dest = (instr[0] as IrParam.Register)!;
+				switch (dest.Type) {
+					case Intrinsic i: {
+							switch (i.Type) {
+								case IntrinsicType.I32:
+									yield return ctx.ReplaceRegisters(instr);
+									break;
+								default:
+									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
+							}
+						} break;
+					default:
+						throw new Exception($"VSDRLA for type '{dest.Type}' not implemented yet");
+				}
+				yield break;
+			}
+			default:
+				throw new Exception($"VSDRLA({instr}) not implemented yet");
+		}
+		throw new Exception("TODO!");
+	}
+
 	public void Generate(string filePath, ReadOnlyDictionary<string, IrBlock> functions) {
+		functions = RegisterLowering.LowerRegisters<VSDRLA_Context>(functions, VerySimpleDumbRegisterLoweringAlgorithm);
+
 		using (StreamWriter asmWriter = new($"{filePath}.asm")) {
 			asmWriter.WriteLine("section .text");
 			asmWriter.WriteLine("global _start");
@@ -27,8 +119,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				WriteMIR(asmWriter, machineIR);
 			}
 		}
-		Process.Start("nasm", new[] {"-felf64", $"{filePath}.asm"});
-		Process.Start("ld", new[] {$"{filePath}.o"});
+		Process.Start("nasm", new[] {"-felf64", $"{filePath}.asm"}).WaitForExit();
+		Process.Start("ld", new[] {$"{filePath}.o"}).WaitForExit();
 	}
 
 	private void WriteMIR(StreamWriter asmWriter, ReadOnlyCollection<MIR> machineIR) {
