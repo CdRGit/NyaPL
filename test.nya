@@ -1,5 +1,5 @@
 fn main(): i32 {
 	let tup = (5, 6);
 	let (a, b) = tup;
-	return a - b;
+	return 100 / 12;
 }
