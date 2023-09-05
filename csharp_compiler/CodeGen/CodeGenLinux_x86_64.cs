@@ -76,6 +76,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				}
 				yield break;
 			}
+			case IrKind.Intrinsic:
 			case IrKind.Copy: {
 				var dest = (instr[0] as IrParam.Register)!;
 				switch (dest.Type) {
@@ -100,7 +101,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	}
 
 	public void Generate(string filePath, ReadOnlyDictionary<string, IrBlock> functions) {
-		functions = RegisterLowering.LowerRegisters<VSDRLA_Context>(functions, VerySimpleDumbRegisterLoweringAlgorithm);
+		(functions, var ctx) = RegisterLowering.LowerRegisters<VSDRLA_Context>(functions, VerySimpleDumbRegisterLoweringAlgorithm);
 
 		using (StreamWriter asmWriter = new($"{filePath}.asm")) {
 			asmWriter.WriteLine("section .text");
@@ -115,7 +116,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			asmWriter.WriteLine("");
 			foreach (var func in functions) {
 				asmWriter.WriteLine($"{MangleFunction(func.Key)}:");
-				var machineIR = GetMIR(func.Value);
+				var allocatedIR = RegisterAllocation.Allocate(func.Value);
+				var machineIR = GetMIR(allocatedIR, ctx);
 				WriteMIR(asmWriter, machineIR);
 			}
 		}
@@ -154,12 +156,12 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return functionName.Replace("/", "~");
 	}
 
-	private ReadOnlyCollection<MIR> GetMIR(IrBlock block) {
+	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, VSDRLA_Context lowererContext) {
 		var ctx = new Context();
-		return GetMIR(block, ctx);
+		return GetMIR(block, ctx, lowererContext);
 	}
 
-	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx) {
+	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
 		List<MIR> data = new();

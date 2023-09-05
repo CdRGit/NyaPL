@@ -8,12 +8,13 @@ using Nyapl.IrGeneration;
 namespace Nyapl.CodeGen;
 
 public static class RegisterLowering {
-	public static ReadOnlyDictionary<string, IrBlock> LowerRegisters<T>(ReadOnlyDictionary<string, IrBlock> functions, Func<IrInstr, T, Func<IrBlock, IrBlock>, IEnumerable<IrInstr>> transformation) where T : new() {
-		return functions.Select(kv => {
-			var lowered = LowerRegisters<T>(kv.Value, transformation, new(), new());
+	public static (ReadOnlyDictionary<string, IrBlock>, T) LowerRegisters<T>(ReadOnlyDictionary<string, IrBlock> functions, Func<IrInstr, T, Func<IrBlock, IrBlock>, IEnumerable<IrInstr>> transformation) where T : new() {
+		T t = new();
+		return (functions.Select(kv => {
+			var lowered = LowerRegisters<T>(kv.Value, transformation, t, new());
 			IrPrinter.DrawGraph(kv.Key, lowered, "lowered");
 			return (kv.Key, lowered);
-		}).ToDictionary(tup => tup.Item1, tup => tup.Item2).AsReadOnly();
+		}).ToDictionary(tup => tup.Item1, tup => tup.Item2).AsReadOnly(), t);
 	}
 
 	static IrBlock LowerRegisters<T>(IrBlock source, Func<IrInstr, T, Func<IrBlock, IrBlock>, IEnumerable<IrInstr>> transformation, T t, Context ctx) where T : new() {
