@@ -149,6 +149,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    add {dstName}, {srcName}");
 				} break;
+				case MIR.Kind.SubInteger: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
+					asmWriter.WriteLine($"    sub {dstName}, {srcName}");
+				} break;
 				case MIR.Kind.IMulInteger: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
@@ -321,6 +326,32 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 										throw new Exception($"{regClass} add not implemented yet");
 								}
 							} break;
+						case IrOpKind.Subtract: {
+								var r = (instr[2] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src1Reg) = regName.Value;
+								r = (instr[3] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src2Reg) = regName.Value;
+								switch (regClass) {
+									case x86_64_Classes.Integer: {
+											// see if we can do a simple 2-addr int sub
+											if (src1Reg == dest) {
+												data.Add(MIR.SubInteger(dest, BitSize(r.Type), src2Reg));
+											} else {
+												int bitCount = BitSize(r.Type);
+												data.Add(MIR.PushRegister(src1Reg));
+												data.Add(MIR.SubInteger(src1Reg, bitCount, src2Reg));
+												data.Add(MIR.CopyRegister(dest, bitCount, src1Reg));
+												data.Add(MIR.PopRegister(src1Reg));
+											}
+										} break;
+									default:
+										throw new Exception($"{regClass} add not implemented yet");
+								}
+							} break;
 						case IrOpKind.Multiply: {
 								var r = (instr[2] as IrParam.Register)!;
 								regName = allocContext.GetName(r);
@@ -410,6 +441,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			reg1Val = src,
 		};
 
+		public static MIR SubInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
+			kind = Kind.SubInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+		};
+
 		public static MIR IMulInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
 			kind = Kind.IMulInteger,
 			reg0Val = dest,
@@ -435,6 +473,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			CopyRegister,
 
 			AddInteger,
+			SubInteger,
 			IMulInteger,
 
 			PushRegister,
