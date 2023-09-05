@@ -82,10 +82,12 @@ public abstract class IrParam {
 	}
 	public class Int : IrParam {
 		public ulong Value { get; }
-		public Int(ulong value) {
+		public int Bits { get; }
+		public Int(ulong value, int bits) {
 			Value = value;
+			Bits = bits;
 		}
-		public override string ToString() => $"Int({Value})";
+		public override string ToString() => $"Int{Bits}({Value})";
 	}
 	public class Intrinsic : IrParam {
 		public string Name { get; }

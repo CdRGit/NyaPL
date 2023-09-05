@@ -21,6 +21,9 @@ public static class RegisterLowering {
 		if (ctx.Visited(source)) return ctx.Replace(source);
 		var block = ctx.Replace(source);
 		ctx.Visit(source);
+		// assume there's only one basic block
+		// let's assert on this assumption
+		if (source.Incoming.Count != 0 || source.Outgoing.Count != 0) throw new Exception("only handling lone basic blocks for now");
 
 		var instructions = source.Instructions.SelectMany(i => transformation(i, t, ctx.Replace));
 		foreach (var instr in instructions) block.AddInstr(instr);

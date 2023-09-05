@@ -39,7 +39,8 @@ public class IrGenerator {
 					block.AddInstr(new(
 						IrKind.Copy,
 						ctx.GetNewRegister(integer.Type!),
-						new IrParam.Int(integer.Value)
+						// TODO: properly work with more-than-just-32-bit-integers
+						new IrParam.Int(integer.Value, 32)
 					));
 					return block;
 				}

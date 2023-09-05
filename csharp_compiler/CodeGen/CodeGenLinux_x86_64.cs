@@ -116,8 +116,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			asmWriter.WriteLine("");
 			foreach (var func in functions) {
 				asmWriter.WriteLine($"{MangleFunction(func.Key)}:");
-				var allocatedIR = RegisterAllocation.Allocate(func.Value);
-				var machineIR = GetMIR(allocatedIR, ctx);
+				var allocCtx = RegisterAllocation.Allocate<x86_64_Registers, x86_64_Classes, x86_64_Names>(func.Value, new ());
+				var machineIR = GetMIR(func.Value, ctx, allocCtx);
 				WriteMIR(asmWriter, machineIR);
 			}
 		}
@@ -135,58 +135,106 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				case MIR.Kind.Label:
 					asmWriter.WriteLine($"{instr.strVal}:");
 					break;
-				case MIR.Kind.Return:
+				case MIR.Kind.CopyInteger: {
+					var regName = GetRegName(instr.reg0Val, instr.int0Val);
+					asmWriter.WriteLine($"    mov {regName}, {instr.int1Val}");
+				} break;
+				case MIR.Kind.CopyRegister: {
+					var dstName = GetRegName(instr.reg0Val, 64);
+					var srcName = GetRegName(instr.reg1Val, 64);
+					asmWriter.WriteLine($"    mov {dstName}, {srcName}");
+				} break;
+				case MIR.Kind.Return: {
+					if (instr.reg0Val != x86_64_Names.RAX) {
+						var regName = GetRegName(instr.reg0Val, 64);
+						asmWriter.WriteLine($"    mov rax, {regName}");
+					}
 					asmWriter.WriteLine("    mov rsp, rbp");
 					asmWriter.WriteLine("    pop rbp");
-					asmWriter.WriteLine($"    ret");
-					break;
-				case MIR.Kind.Push:
-					asmWriter.WriteLine($"    push DWORD {instr.intVal}");
-					break;
-				case MIR.Kind.Peek:
-					asmWriter.WriteLine($"    mov {instr.strVal}, [rsp+{instr.intVal}]");
-					break;
+					asmWriter.WriteLine("    ret");
+				} break;
 				default:
 					throw new Exception($"WriteMIR(MIR.Kind.{instr.kind}) not implemented yet");
 			}
 		}
 	}
 
+	private static Dictionary<x86_64_Names, Dictionary<ulong, string>> regNames = new() {
+		{ x86_64_Names.R10, new() {
+			{64, "r10"},
+			{32, "r10d"},
+		}},
+		{ x86_64_Names.R11, new() {
+			{64, "r11"},
+			{32, "r11d"},
+		}},
+	};
+	private string GetRegName(x86_64_Names name, ulong bitCount) {
+		if (!regNames.ContainsKey(name)) throw new Exception($"GetRegName({name}, {bitCount}) not ready yet: name");
+		var reg = regNames[name];
+		if (!reg.ContainsKey(bitCount)) throw new Exception($"GetRegName({name}, {bitCount}) not ready yet: bitCount");
+		return reg[bitCount];
+	}
+
 	private string MangleFunction(string functionName) {
 		return functionName.Replace("/", "~");
 	}
 
-	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, VSDRLA_Context lowererContext) {
+	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		var ctx = new Context();
-		return GetMIR(block, ctx, lowererContext);
+		return GetMIR(block, ctx, lowererContext, allocContext);
 	}
 
-	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext) {
+	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
 		List<MIR> data = new();
 		data.Add(MIR.Label($".block_{block.ID}"));
 		foreach (var instr in block.Instructions) {
 			switch (instr.Kind) {
-				case IrKind.Copy:
-					switch (instr[1]) {
-						case IrParam.Int i:
-							data.Add(MIR.Push((int)i.Value)); // this is very incorrect :)
-							break;
+				case IrKind.Copy: {
+					var regName = allocContext.GetName((instr[0] as IrParam.Register)!);
+					if (regName == null) throw new Exception($"Register {instr[0]} not named");
+					var (regClass, dest) = regName.Value;
+					switch (regClass) {
+						case x86_64_Classes.Integer: {
+							var src = instr[1]!;
+							switch (src) {
+								case IrParam.Int i: {
+									switch (i.Bits) {
+										case 32:
+											data.Add(MIR.CopyInteger(dest, i.Bits, i.Value));
+											break;
+										default:
+											throw new Exception($"GetMIR(Copy[integer].BitCount: {i.Bits}) not implemented yet");
+									}
+								} break;
+								case IrParam.Register r: {
+									regName = allocContext.GetName(r);
+									if (regName == null) throw new Exception($"Register {r} not named");
+									var (reg2Class, srcReg) = regName.Value;
+									if (srcReg == dest) break; // noop
+									data.Add(MIR.CopyRegister(dest, srcReg));
+								} break;
+								default:
+									throw new Exception($"GetMIR(Copy.Src: {src}) not implemented yet");
+							}
+						} break;
 						default:
-							throw new Exception("cannot generate MIR for non-integer copy loads");
+							throw new Exception($"GetMIR(Copy.Dest: {regClass}) not implemented yet");
 					}
-					ctx.SetRegister((instr[0] as IrParam.Register)!, ctx.StackOffset);
-					ctx.Push(4);
 					break;
+				}
 				case IrKind.LoadArguments:
 					if (instr.Params.Length != 0) throw new Exception("cannot generate MIR for non-zero argument count functions");
 					data.Add(MIR.Preamble());
 					break;
-				case IrKind.Return:
-					data.Add(MIR.Peek(ctx.GetRegister((instr[0] as IrParam.Register)!), "rax"));
-					data.Add(MIR.Return());
-					break;
+				case IrKind.Return: {
+					var regName = allocContext.GetName((instr[0] as IrParam.Register)!);
+					if (regName == null) throw new Exception($"Register {instr[0]} not named");
+					var (regClass, src) = regName.Value;
+					data.Add(MIR.Return(src));
+				} break;
 				default:
 					throw new Exception($"GetMIR(IrKind.{instr.Kind}) not implemented yet");
 			}
@@ -198,13 +246,6 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		HashSet<IrBlock> visited = new();
 		public void Visit(IrBlock block) => visited.Add(block);
 		public bool Visited(IrBlock block) => visited.Contains(block);
-
-		public int StackOffset { get; private set; }
-		public void Push(int offset) => StackOffset += offset;
-
-		Dictionary<uint, int> registers = new();
-		public void SetRegister(IrParam.Register reg, int offset) => registers[reg.Index] = offset;
-		public int GetRegister(IrParam.Register reg) => registers[reg.Index];
 	}
 
 	struct MIR {
@@ -217,31 +258,110 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			kind = Kind.Preamble,
 		};
 
-		public static MIR Return() => new() {
+		public static MIR Return(x86_64_Names src) => new() {
 			kind = Kind.Return,
+			reg0Val = src,
 		};
 
-		public static MIR Push(int val) => new() {
-			kind = Kind.Push,
-			intVal = val,
+		public static MIR CopyInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
+			kind = Kind.CopyInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			int1Val = val,
 		};
 
-		public static MIR Peek(int offset, string reg) => new() {
-			kind = Kind.Peek,
-			intVal = offset,
-			strVal = reg,
+		public static MIR CopyRegister(x86_64_Names dest, x86_64_Names src) => new() {
+			kind = Kind.CopyRegister,
+			reg0Val = dest,
+			reg1Val = src,
 		};
 
 		public Kind kind;
 		public enum Kind {
 			Label,
 			Preamble,
+			CopyInteger,
+			CopyRegister,
 			Return,
-			Push,
-			Peek,
 		}
 
+		public x86_64_Names reg0Val;
+		public x86_64_Names reg1Val;
 		public string strVal;
-		public int intVal;
+		public ulong int0Val;
+		public ulong int1Val;
+	}
+
+	class x86_64_Registers : IRegisterSet<x86_64_Classes, x86_64_Names> {
+		public x86_64_Classes Classify(IrParam.Register r) {
+			switch (r.Type) {
+				case Intrinsic i:
+					switch (i.Type) {
+						case IntrinsicType.I32:
+							return x86_64_Classes.Integer;
+						default:
+							throw new Exception($"Classify for intrinsic '{i.Type}' not implemented yet");
+					} break;
+			}
+			throw new Exception("TODO!");
+		}
+
+		public x86_64_Names[] GetOrderedRegisters(x86_64_Classes c) {
+			switch (c) {
+				case x86_64_Classes.Integer:
+					{
+						return new[] {
+							x86_64_Names.R11,
+							x86_64_Names.R10,
+							x86_64_Names.RAX,
+							x86_64_Names.RDI,
+							x86_64_Names.RSI,
+							x86_64_Names.RDX,
+							x86_64_Names.RCX,
+							x86_64_Names.R8,
+							x86_64_Names.R9,
+							x86_64_Names.RBX,
+							x86_64_Names.R12,
+							x86_64_Names.R13,
+							x86_64_Names.R14,
+							x86_64_Names.R15
+						};
+					}
+			}
+			throw new Exception("TODO!");
+		}
+
+		public bool NeedsAllocation(x86_64_Classes c) {
+			return c != x86_64_Classes.Undecidable;
+		}
+		public int GetRegisterCount(x86_64_Classes c) {
+			return GetOrderedRegisters(c).Length;
+		}
+	}
+
+	enum x86_64_Classes {
+		Undecidable, // for tuple registers left over in parameters
+		Integer,
+	}
+
+	enum x86_64_Names {
+		// Integer
+		RAX,
+		RBX,
+		RCX,
+		RDX,
+		RSI,
+		RDI,
+		// not general purpose, but leaving them in for the sake of rember
+		// RBP,
+		// RSP,
+		R8,
+		R9,
+		R10,
+		R11,
+		R12,
+		R13,
+		R14,
+		R15,
 	}
 }
