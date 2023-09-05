@@ -149,6 +149,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    add {dstName}, {srcName}");
 				} break;
+				case MIR.Kind.IMulInteger: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
+					asmWriter.WriteLine($"    imul {dstName}, {srcName}");
+				} break;
 				case MIR.Kind.Return: {
 					if (instr.reg0Val != x86_64_Names.RAX) {
 						var regName = GetRegName(instr.reg0Val, instr.int0Val);
@@ -177,6 +182,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			{64, "rax"},
 			{32, "eax"},
 		}},
+		{ x86_64_Names.RDI, new() {
+			{64, "rax"},
+			{32, "eax"},
+		}},
 		{ x86_64_Names.R10, new() {
 			{64, "r10"},
 			{32, "r10d"},
@@ -199,13 +208,27 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					switch (i.Type) {
 						case IntrinsicType.I32:
 							return 32;
-							break;
 						default:
 							throw new Exception($"BitSize for intrinsic '{i.Type}' not implemented yet");
 					}
 				} break;
 			default:
 				throw new Exception($"BitSize for type '{type}' not implemented yet");
+		}
+	}
+
+	private bool Signed(Typ type) {
+		switch (type) {
+			case Intrinsic i: {
+					switch (i.Type) {
+						case IntrinsicType.I32:
+							return true;
+						default:
+							throw new Exception($"Signed for intrinsic '{i.Type}' not implemented yet");
+					}
+				} break;
+			default:
+				throw new Exception($"Signed for type '{type}' not implemented yet");
 		}
 	}
 
@@ -298,6 +321,40 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 										throw new Exception($"{regClass} add not implemented yet");
 								}
 							} break;
+						case IrOpKind.Multiply: {
+								var r = (instr[2] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src1Reg) = regName.Value;
+								r = (instr[3] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src2Reg) = regName.Value;
+								switch (regClass) {
+									case x86_64_Classes.Integer: {
+											// sign vs unsign
+											var signed = Signed(r.Type);
+											if (signed) {
+												// imul
+												if (src1Reg == dest) {
+													data.Add(MIR.IMulInteger(dest, BitSize(r.Type), src2Reg));
+												} else if (src2Reg == dest) {
+													data.Add(MIR.IMulInteger(dest, BitSize(r.Type), src1Reg));
+												} else {
+													int bitCount = BitSize(r.Type);
+													data.Add(MIR.PushRegister(src1Reg));
+													data.Add(MIR.IMulInteger(src1Reg, bitCount, src2Reg));
+													data.Add(MIR.CopyRegister(dest, bitCount, src1Reg));
+													data.Add(MIR.PopRegister(src1Reg));
+												}
+											} else {
+												throw new Exception("unsigned int multiply not implemented yet");
+											}
+										} break;
+									default:
+										throw new Exception($"{regClass} add not implemented yet");
+								}
+							} break;
 						default:
 							throw new Exception($"GetMIR(Intrinsic.Kind: {intrinsicOp}) not implemented yet");
 					}
@@ -353,6 +410,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			reg1Val = src,
 		};
 
+		public static MIR IMulInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
+			kind = Kind.IMulInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+		};
+
 		public static MIR PushRegister(x86_64_Names src) => new() {
 			kind = Kind.PushRegister,
 			reg0Val = src,
@@ -371,6 +435,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			CopyRegister,
 
 			AddInteger,
+			IMulInteger,
 
 			PushRegister,
 			PopRegister,
