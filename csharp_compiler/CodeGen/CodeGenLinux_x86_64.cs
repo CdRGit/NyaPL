@@ -431,6 +431,43 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 										throw new Exception($"{regClass} add not implemented yet");
 								}
 							} break;
+						case IrOpKind.Modulo: {
+								var r = (instr[2] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src1Reg) = regName.Value;
+								r = (instr[3] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src2Reg) = regName.Value;
+								switch (regClass) {
+									case x86_64_Classes.Integer: {
+											// sign vs unsign
+											var signed = Signed(r.Type);
+											if (signed) {
+												// idiv
+												int bitCount = BitSize(r.Type);
+												data.Add(MIR.PushRegister(x86_64_Names.RAX));
+												if (dest != x86_64_Names.RDX)
+													data.Add(MIR.PushRegister(x86_64_Names.RDX));
+
+												data.Add(MIR.CopyRegister(x86_64_Names.RAX, bitCount, src1Reg));
+												data.Add(MIR.XorInteger(x86_64_Names.RDX, bitCount, x86_64_Names.RDX));
+												data.Add(MIR.IDivInteger(bitCount, src2Reg));
+												if (dest != x86_64_Names.RDX)
+													data.Add(MIR.CopyRegister(dest, bitCount, x86_64_Names.RDX));
+
+												if (dest != x86_64_Names.RDX)
+													data.Add(MIR.PopRegister(x86_64_Names.RDX));
+												data.Add(MIR.PopRegister(x86_64_Names.RAX));
+											} else {
+												throw new Exception("unsigned int division not implemented yet");
+											}
+										} break;
+									default:
+										throw new Exception($"{regClass} add not implemented yet");
+								}
+							} break;
 						default:
 							throw new Exception($"GetMIR(Intrinsic.Kind: {intrinsicOp}) not implemented yet");
 					}
