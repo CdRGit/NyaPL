@@ -275,6 +275,8 @@ public static class RegisterAllocation {
 		Dictionary<uint, (C, N)> names = new();
 		public void SetName(IrParam.Register r, (C, N) name) => names[r.Index] = name;
 		public (C, N)? GetName(IrParam.Register r) => names.ContainsKey(r.Index) ? names[r.Index] : null;
+
+		public ReadOnlyDictionary<uint, (C, N)> Names => names.AsReadOnly();
 	}
 }
 

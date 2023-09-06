@@ -167,28 +167,41 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				case MIR.Kind.Label:
 					asmWriter.WriteLine($"{instr.strVal}:");
 					break;
-				case MIR.Kind.Jne:
+				case MIR.Kind.JumpNE:
 					asmWriter.WriteLine($"    jne {instr.strVal}");
 					break;
-				case MIR.Kind.Je:
+				case MIR.Kind.JumpE:
 					asmWriter.WriteLine($"    je {instr.strVal}");
 					break;
-				case MIR.Kind.Jmp:
+				case MIR.Kind.Jump:
 					asmWriter.WriteLine($"    jmp {instr.strVal}");
 					break;
-				case MIR.Kind.CopyInteger: {
+				case MIR.Kind.MovInteger: {
 					var regName = GetRegName(instr.reg0Val, instr.int0Val);
 					asmWriter.WriteLine($"    mov {regName}, {instr.int1Val}");
 				} break;
-				case MIR.Kind.CopyRegister: {
+				case MIR.Kind.CmoveInteger: {
+					var regName = GetRegName(instr.reg0Val, instr.int0Val);
+					asmWriter.WriteLine($"    cmove {regName}, {instr.int1Val}");
+				} break;
+				case MIR.Kind.MovRegister: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    mov {dstName}, {srcName}");
+				} break;
+				case MIR.Kind.SetNE: {
+					var regName = GetRegName(instr.reg0Val, 8);
+					asmWriter.WriteLine($"    setne {regName}");
 				} break;
 				case MIR.Kind.TestInteger: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    test {dstName}, {srcName}");
+				} break;
+				case MIR.Kind.CmpInteger: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
+					asmWriter.WriteLine($"    cmp {dstName}, {srcName}");
 				} break;
 				case MIR.Kind.XorInteger: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
@@ -366,7 +379,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		var ctx = new Context();
-		return GetMIR(block, ctx, lowererContext, allocContext);
+		List<MIR> data = new();
+		data.Add(MIR.Comment($"registers: "));
+		foreach (var pair in allocContext.Names) {
+			data.Add(MIR.Comment($"{pair.Key}: {pair.Value}"));
+		}
+		data.AddRange(GetMIR(block, ctx, lowererContext, allocContext));
+		return data.AsReadOnly();
 	}
 
 	private void HandlePhiCopies(List<MIR> data, IrBlock sourceBlock, IrBlock targetBlock, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
@@ -384,7 +403,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					if (regName == null) throw new Exception($"Register {r} not named");
 					var (_, srcReg) = regName.Value;
 					if (srcReg == dest) break; // noop
-					data.Add(MIR.CopyRegister(dest, BitSize(reg.Type), srcReg));
+					data.Add(MIR.Comment($"Φ: {reg} <- {r}"));
+					data.Add(MIR.MovRegister(dest, BitSize(reg.Type), srcReg));
 					break;
 				}
 			}
@@ -397,6 +417,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		List<MIR> data = new();
 		data.Add(MIR.Label($".block_{block.ID}"));
 		foreach (var instr in block.Instructions) {
+			data.Add(MIR.Comment($"{instr}"));
 			switch (instr.Kind) {
 				// handled in branches
 				case IrKind.Phi: continue;
@@ -406,17 +427,17 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var regName = allocContext.GetName(reg);
 					if (regName == null) throw new Exception($"Register {instr[0]} not named");
 					var (regClass, src) = regName.Value;
-					var trueBlock = (instr[1] as IrParam.Block)!.Blk;
-					var falseBlock = (instr[2] as IrParam.Block)!.Blk;
+					var trueBlock = (instr[2] as IrParam.Block)!.Blk;
+					var falseBlock = (instr[1] as IrParam.Block)!.Blk;
 					data.Add(MIR.TestInteger(src, 8, src));
-					data.Add(MIR.Jne($".block_{block.ID}_branchbool_true"));
+					data.Add(MIR.JumpNE($".block_{block.ID}_branchbool_true"));
 					// copies for false block, if needed
 					HandlePhiCopies(data, block, falseBlock, allocContext);
-					data.Add(MIR.Jmp($".block_{falseBlock.ID}"));
+					data.Add(MIR.Jump($".block_{falseBlock.ID}"));
 					data.Add(MIR.Label($".block_{block.ID}_branchbool_true"));
 					// copies for true block, if needed
 					HandlePhiCopies(data, block, trueBlock, allocContext);
-					data.Add(MIR.Jmp($".block_{trueBlock.ID}"));
+					data.Add(MIR.Jump($".block_{trueBlock.ID}"));
 					data.AddRange(GetMIR(trueBlock, ctx, lowererContext, allocContext));
 					data.AddRange(GetMIR(falseBlock, ctx, lowererContext, allocContext));
 				} break;
@@ -424,7 +445,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var targetBlock = (instr[0] as IrParam.Block)!.Blk;
 					// copies for target block, if needed
 					HandlePhiCopies(data, block, targetBlock, allocContext);
-					data.Add(MIR.Jmp($".block_{targetBlock.ID}"));
+					data.Add(MIR.Jump($".block_{targetBlock.ID}"));
 					data.AddRange(GetMIR(targetBlock, ctx, lowererContext, allocContext));
 				} break;
 				case IrKind.Copy: {
@@ -437,17 +458,17 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							var src = instr[1]!;
 							switch (src) {
 								case IrParam.Int i: {
-									data.Add(MIR.CopyInteger(dest, BitSize(reg.Type), i.Value));
+									data.Add(MIR.MovInteger(dest, BitSize(reg.Type), i.Value));
 								} break;
 								case IrParam.Bool b: {
-									data.Add(MIR.CopyInteger(dest, 8, b.Value ? 1ul : 0ul));
+									data.Add(MIR.MovInteger(dest, 8, b.Value ? 1ul : 0ul));
 								} break;
 								case IrParam.Register r: {
 									regName = allocContext.GetName(r);
 									if (regName == null) throw new Exception($"Register {r} not named");
 									var (_, srcReg) = regName.Value;
 									if (srcReg == dest) break; // noop
-									data.Add(MIR.CopyRegister(dest, BitSize(reg.Type), srcReg));
+									data.Add(MIR.MovRegister(dest, BitSize(reg.Type), srcReg));
 								} break;
 								default:
 									throw new Exception($"GetMIR(Copy.Src: {src}) not implemented yet");
@@ -474,6 +495,24 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var (regClass, dest) = regName.Value;
 					var intrinsicOp = (instr[1] as IrParam.IntrinsicOp)!;
 					switch (intrinsicOp.Kind) {
+						case IrOpKind.NotEq: {
+								var r = (instr[2] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src1Reg) = regName.Value;
+								r = (instr[3] as IrParam.Register)!;
+								regName = allocContext.GetName(r);
+								if (regName == null) throw new Exception($"Register {r} not named");
+								var (_, src2Reg) = regName.Value;
+								switch (regClass) {
+									case x86_64_Classes.Integer: {
+											data.Add(MIR.CmpInteger(src1Reg, BitSize(r.Type), src2Reg));
+											data.Add(MIR.SetNE(dest));
+										} break;
+									default:
+										throw new Exception($"{regClass} not-eq not implemented yet");
+								}
+							} break;
 						case IrOpKind.Add: {
 								var r = (instr[2] as IrParam.Register)!;
 								regName = allocContext.GetName(r);
@@ -494,7 +533,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 												int bitCount = BitSize(r.Type);
 												data.Add(MIR.PushRegister(src1Reg));
 												data.Add(MIR.AddInteger(src1Reg, bitCount, src2Reg));
-												data.Add(MIR.CopyRegister(dest, bitCount, src1Reg));
+												data.Add(MIR.MovRegister(dest, bitCount, src1Reg));
 												data.Add(MIR.PopRegister(src1Reg));
 											}
 										} break;
@@ -520,7 +559,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 												int bitCount = BitSize(r.Type);
 												data.Add(MIR.PushRegister(src1Reg));
 												data.Add(MIR.SubInteger(src1Reg, bitCount, src2Reg));
-												data.Add(MIR.CopyRegister(dest, bitCount, src1Reg));
+												data.Add(MIR.MovRegister(dest, bitCount, src1Reg));
 												data.Add(MIR.PopRegister(src1Reg));
 											}
 										} break;
@@ -546,7 +585,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 												int bitCount = BitSize(r.Type);
 												data.Add(MIR.PushRegister(src1Reg));
 												data.Add(MIR.IMulInteger(src1Reg, bitCount, src2Reg));
-												data.Add(MIR.CopyRegister(dest, bitCount, src1Reg));
+												data.Add(MIR.MovRegister(dest, bitCount, src1Reg));
 												data.Add(MIR.PopRegister(src1Reg));
 											} else {
 												throw new Exception("unsigned int multiply not implemented yet");
@@ -578,10 +617,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 												data.Add(MIR.XorInteger(x86_64_Names.RDX, bitCount, x86_64_Names.RDX));
 												if (src1Reg != x86_64_Names.RAX)
-													data.Add(MIR.CopyRegister(x86_64_Names.RAX, bitCount, src1Reg));
+													data.Add(MIR.MovRegister(x86_64_Names.RAX, bitCount, src1Reg));
 												data.Add(MIR.IDivInteger(bitCount, src2Reg));
 												if (dest != x86_64_Names.RAX)
-													data.Add(MIR.CopyRegister(dest, bitCount, x86_64_Names.RAX));
+													data.Add(MIR.MovRegister(dest, bitCount, x86_64_Names.RAX));
 
 												data.Add(MIR.PopRegister(x86_64_Names.RDX));
 												if (dest != x86_64_Names.RAX)
@@ -614,11 +653,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 												if (dest != x86_64_Names.RDX)
 													data.Add(MIR.PushRegister(x86_64_Names.RDX));
 
-												data.Add(MIR.CopyRegister(x86_64_Names.RAX, bitCount, src1Reg));
+												data.Add(MIR.MovRegister(x86_64_Names.RAX, bitCount, src1Reg));
 												data.Add(MIR.XorInteger(x86_64_Names.RDX, bitCount, x86_64_Names.RDX));
 												data.Add(MIR.IDivInteger(bitCount, src2Reg));
 												if (dest != x86_64_Names.RDX)
-													data.Add(MIR.CopyRegister(dest, bitCount, x86_64_Names.RDX));
+													data.Add(MIR.MovRegister(dest, bitCount, x86_64_Names.RDX));
 
 												if (dest != x86_64_Names.RDX)
 													data.Add(MIR.PopRegister(x86_64_Names.RDX));
@@ -670,37 +709,56 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			int0Val = (ulong)bitCount,
 		};
 
-		public static MIR Jmp(string label_text) => new() {
-			kind = Kind.Jmp,
+		public static MIR Jump(string label_text) => new() {
+			kind = Kind.Jump,
 			strVal = label_text,
 		};
 
-		public static MIR Je(string label_text) => new() {
-			kind = Kind.Je,
+		public static MIR JumpE(string label_text) => new() {
+			kind = Kind.JumpE,
 			strVal = label_text,
 		};
 
-		public static MIR Jne(string label_text) => new() {
-			kind = Kind.Jne,
+		public static MIR JumpNE(string label_text) => new() {
+			kind = Kind.JumpNE,
 			strVal = label_text,
 		};
 
-		public static MIR CopyInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
-			kind = Kind.CopyInteger,
+		public static MIR MovInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
+			kind = Kind.MovInteger,
 			reg0Val = dest,
 			int0Val = (ulong)bitCount,
 			int1Val = val,
 		};
 
-		public static MIR CopyRegister(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
-			kind = Kind.CopyRegister,
+		public static MIR CmoveInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
+			kind = Kind.CmoveInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			int1Val = val,
+		};
+
+		public static MIR MovRegister(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
+			kind = Kind.MovRegister,
 			reg0Val = dest,
 			int0Val = (ulong)bitCount,
 			reg1Val = src,
 		};
 
+		public static MIR SetNE(x86_64_Names dest) => new() {
+			kind = Kind.SetNE,
+			reg0Val = dest,
+		};
+
 		public static MIR TestInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
 			kind = Kind.TestInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+		};
+
+		public static MIR CmpInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
+			kind = Kind.CmpInteger,
 			reg0Val = dest,
 			int0Val = (ulong)bitCount,
 			reg1Val = src,
@@ -756,14 +814,18 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			Comment,
 
 			Preamble,
-			CopyInteger,
-			CopyRegister,
+			MovInteger,
+			CmoveInteger,
+			MovRegister,
 
-			Jmp,
-			Je,
-			Jne,
+			SetNE,
+
+			Jump,
+			JumpE,
+			JumpNE,
 
 			TestInteger,
+			CmpInteger,
 
 			XorInteger,
 

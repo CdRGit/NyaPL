@@ -108,7 +108,7 @@ public abstract class IrParam {
 		public Block(IrBlock blk) {
 			Blk = blk;
 		}
-		public override string ToString() => $"Block({Blk})";
+		public override string ToString() => $"Block({Blk.ID})";
 	}
 	public class IntrinsicOp : IrParam {
 		public IrOpKind Kind { get; }
