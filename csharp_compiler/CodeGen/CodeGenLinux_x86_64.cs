@@ -161,7 +161,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					asmWriter.WriteLine("    push rbp");
 					asmWriter.WriteLine("    mov rbp, rsp");
 					break;
-				case MIR.Kind.Comment:
+				case MIR.Kind.Comment: break;
 					asmWriter.WriteLine($"; {instr.strVal}");
 					break;
 				case MIR.Kind.Label:
@@ -391,7 +391,6 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	private void HandlePhiCopies(List<MIR> data, IrBlock sourceBlock, IrBlock targetBlock, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		foreach (var instr in targetBlock.Instructions) {
 			if (instr.Kind != IrKind.Phi) break;
-			Console.WriteLine(instr);
 			var reg = (instr[0] as IrParam.Register)!;
 			var regName = allocContext.GetName(reg);
 			if (regName == null) throw new Exception($"Register {instr[0]} not named");

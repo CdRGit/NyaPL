@@ -43,21 +43,15 @@ public static class RegisterAllocation {
 			}
 			else {
 				doubly_visited.Add(b);
-				Console.WriteLine($"[{b.ID}] (revisit)");
 			}
 		} else {
 			visited.Add(b);
-			Console.WriteLine($"[{b.ID}]");
 		}
 
 		HashSet<uint> alive_next = new();
 		HashSet<uint> dying_next = new();
 		for (int i = b.Instructions.Count - 1; i >= 0; --i) {
 			var instr = b.Instructions[i];
-			Console.WriteLine($" {i}: {instr}");
-			foreach (var reg in live_vals) {
-				Console.WriteLine($"  {reg} is live");
-			}
 			foreach (var parameter in instr.Params) {
 				if (parameter is IrParam.Register r) {
 					if (!live_vals.Contains(r.Index)) {
@@ -69,23 +63,23 @@ public static class RegisterAllocation {
 							vertex.adjacent = new();
 							g.vertices[r.Index] = vertex;
 						}
-						Console.WriteLine($"++{r.Index} is live");
-					}
-					g.vertices[r.Index].adjacent.UnionWith(live_vals.Select(v => g.vertices[v]));
-					foreach (var reg in live_vals) {
-						g.edges.Add((reg, r.Index));
-						g.vertices[reg].adjacent.Add(g.vertices[r.Index]);
 					}
 				}
 			}
 			if (instr.Kind != IrKind.Return && instr.Kind != IrKind.BranchBool) {
 				if (instr[0] is IrParam.Register r) {
 					dying_next.Add(r.Index);
-					Console.WriteLine($"--{r.Index} is live");
+				}
+			}
+			live_vals.ExceptWith(dying_next);
+			foreach (var r in alive_next) {
+				g.vertices[r].adjacent.UnionWith(live_vals.Select(v => g.vertices[v]));
+				foreach (var reg in live_vals) {
+					g.edges.Add((reg, r));
+					g.vertices[reg].adjacent.Add(g.vertices[r]);
 				}
 			}
 			live_vals.UnionWith(alive_next);
-			live_vals.ExceptWith(dying_next);
 			alive_next.Clear();
 			dying_next.Clear();
 		}
