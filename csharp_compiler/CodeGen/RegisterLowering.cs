@@ -23,10 +23,14 @@ public static class RegisterLowering {
 		ctx.Visit(source);
 		// assume there's only one basic block
 		// let's assert on this assumption
-		if (source.Incoming.Count != 0 || source.Outgoing.Count != 0) throw new Exception("only handling lone basic blocks for now");
+		// if (source.Incoming.Count != 0 || source.Outgoing.Count != 0) throw new Exception("only handling lone basic blocks for now");
 
 		var instructions = source.Instructions.SelectMany(i => transformation(i, t, ctx.Replace));
 		foreach (var instr in instructions) block.AddInstr(instr);
+
+		foreach (var connection in source.Outgoing) {
+			block.AddConnection(LowerRegisters(connection.node, transformation, t, ctx), connection.label);
+		}
 
 		return block;
 	}

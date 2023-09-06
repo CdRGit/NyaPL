@@ -67,6 +67,9 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 								case IntrinsicType.I32:
 									yield return ctx.ReplaceRegisters(instr);
 									break;
+								case IntrinsicType.Bool:
+									yield return ctx.ReplaceRegisters(instr);
+									break;
 								default:
 									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
 							}
@@ -85,6 +88,9 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 								case IntrinsicType.I32:
 									yield return ctx.ReplaceRegisters(instr);
 									break;
+								case IntrinsicType.Bool:
+									yield return ctx.ReplaceRegisters(instr);
+									break;
 								default:
 									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
 							}
@@ -94,6 +100,29 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				}
 				yield break;
 			}
+			case IrKind.Phi: {
+				var dest = (instr[0] as IrParam.Register)!;
+				switch (dest.Type) {
+					case Intrinsic i: {
+							switch (i.Type) {
+								case IntrinsicType.I32:
+									yield return ctx.ReplaceRegisters(new IrInstr(instr.Kind, instr.Params.Select(p => p is IrParam.Block b ? new IrParam.Block(replace(b.Blk)) : p).ToArray()));
+									break;
+								case IntrinsicType.Bool:
+									yield return ctx.ReplaceRegisters(new IrInstr(instr.Kind, instr.Params.Select(p => p is IrParam.Block b ? new IrParam.Block(replace(b.Blk)) : p).ToArray()));
+									break;
+								default:
+									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
+							}
+						} break;
+					default:
+						throw new Exception($"VSDRLA for type '{dest.Type}' not implemented yet");
+				}
+			} yield break;
+			case IrKind.BranchAlways:
+			case IrKind.BranchBool: {
+				yield return ctx.ReplaceRegisters(new IrInstr(instr.Kind, instr.Params.Select(p => p is IrParam.Block b ? new IrParam.Block(replace(b.Blk)) : p).ToArray()));
+			} yield break;
 			default:
 				throw new Exception($"VSDRLA({instr}) not implemented yet");
 		}
@@ -132,8 +161,20 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					asmWriter.WriteLine("    push rbp");
 					asmWriter.WriteLine("    mov rbp, rsp");
 					break;
+				case MIR.Kind.Comment:
+					asmWriter.WriteLine($"; {instr.strVal}");
+					break;
 				case MIR.Kind.Label:
 					asmWriter.WriteLine($"{instr.strVal}:");
+					break;
+				case MIR.Kind.Jne:
+					asmWriter.WriteLine($"    jne {instr.strVal}");
+					break;
+				case MIR.Kind.Je:
+					asmWriter.WriteLine($"    je {instr.strVal}");
+					break;
+				case MIR.Kind.Jmp:
+					asmWriter.WriteLine($"    jmp {instr.strVal}");
 					break;
 				case MIR.Kind.CopyInteger: {
 					var regName = GetRegName(instr.reg0Val, instr.int0Val);
@@ -143,6 +184,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    mov {dstName}, {srcName}");
+				} break;
+				case MIR.Kind.TestInteger: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
+					asmWriter.WriteLine($"    test {dstName}, {srcName}");
 				} break;
 				case MIR.Kind.XorInteger: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
@@ -195,22 +241,86 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		{ x86_64_Names.RAX, new() {
 			{64, "rax"},
 			{32, "eax"},
+			{16, "ax"},
+			{8,  "al"},
+		}},
+		{ x86_64_Names.RBX, new() {
+			{64, "rbx"},
+			{32, "ebx"},
+			{16, "bx"},
+			{8,  "bl"},
+		}},
+		{ x86_64_Names.RCX, new() {
+			{64, "rcx"},
+			{32, "ecx"},
+			{16, "cx"},
+			{8,  "cl"},
 		}},
 		{ x86_64_Names.RDX, new() {
 			{64, "rdx"},
 			{32, "edx"},
+			{16, "dx"},
+			{8,  "dl"},
+		}},
+		{ x86_64_Names.RSI, new() {
+			{64, "rsi"},
+			{32, "esi"},
+			{16, "si"},
+			{8,  "sil"},
 		}},
 		{ x86_64_Names.RDI, new() {
-			{64, "rax"},
-			{32, "eax"},
+			{64, "rdi"},
+			{32, "edi"},
+			{16, "di"},
+			{8,  "dil"},
+		}},
+		{ x86_64_Names.R8, new() {
+			{64, "r8"},
+			{32, "r8d"},
+			{16, "r8w"},
+			{8,  "r8b"},
+		}},
+		{ x86_64_Names.R9, new() {
+			{64, "r9"},
+			{32, "r9d"},
+			{16, "r9w"},
+			{8,  "r9b"},
 		}},
 		{ x86_64_Names.R10, new() {
 			{64, "r10"},
 			{32, "r10d"},
+			{16, "r10w"},
+			{8,  "r10b"},
 		}},
 		{ x86_64_Names.R11, new() {
 			{64, "r11"},
 			{32, "r11d"},
+			{16, "r11w"},
+			{8,  "r11b"},
+		}},
+		{ x86_64_Names.R12, new() {
+			{64, "r12"},
+			{32, "r12d"},
+			{16, "r12w"},
+			{8,  "r12b"},
+		}},
+		{ x86_64_Names.R13, new() {
+			{64, "r13"},
+			{32, "r13d"},
+			{16, "r13w"},
+			{8,  "r13b"},
+		}},
+		{ x86_64_Names.R14, new() {
+			{64, "r14"},
+			{32, "r14d"},
+			{16, "r14w"},
+			{8,  "r14b"},
+		}},
+		{ x86_64_Names.R15, new() {
+			{64, "r15"},
+			{32, "r15d"},
+			{16, "r15w"},
+			{8,  "r15b"},
 		}},
 	};
 	private string GetRegName(x86_64_Names name, ulong bitCount) {
@@ -259,6 +369,28 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return GetMIR(block, ctx, lowererContext, allocContext);
 	}
 
+	private void HandlePhiCopies(List<MIR> data, IrBlock sourceBlock, IrBlock targetBlock, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
+		foreach (var instr in targetBlock.Instructions) {
+			if (instr.Kind != IrKind.Phi) break;
+			Console.WriteLine(instr);
+			var reg = (instr[0] as IrParam.Register)!;
+			var regName = allocContext.GetName(reg);
+			if (regName == null) throw new Exception($"Register {instr[0]} not named");
+			var (regClass, dest) = regName.Value;
+			for (int i = 1; i < instr.Params.Length; i+=2) {
+				if ((instr[i] as IrParam.Block)!.Blk == sourceBlock) {
+					var r = (instr[i + 1] as IrParam.Register)!;
+					regName = allocContext.GetName(r);
+					if (regName == null) throw new Exception($"Register {r} not named");
+					var (_, srcReg) = regName.Value;
+					if (srcReg == dest) break; // noop
+					data.Add(MIR.CopyRegister(dest, BitSize(reg.Type), srcReg));
+					break;
+				}
+			}
+		}
+	}
+
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
@@ -266,6 +398,35 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		data.Add(MIR.Label($".block_{block.ID}"));
 		foreach (var instr in block.Instructions) {
 			switch (instr.Kind) {
+				// handled in branches
+				case IrKind.Phi: continue;
+
+				case IrKind.BranchBool: {
+					var reg = (instr[0] as IrParam.Register)!;
+					var regName = allocContext.GetName(reg);
+					if (regName == null) throw new Exception($"Register {instr[0]} not named");
+					var (regClass, src) = regName.Value;
+					var trueBlock = (instr[1] as IrParam.Block)!.Blk;
+					var falseBlock = (instr[2] as IrParam.Block)!.Blk;
+					data.Add(MIR.TestInteger(src, 8, src));
+					data.Add(MIR.Jne($".block_{block.ID}_branchbool_true"));
+					// copies for false block, if needed
+					HandlePhiCopies(data, block, falseBlock, allocContext);
+					data.Add(MIR.Jmp($".block_{falseBlock.ID}"));
+					data.Add(MIR.Label($".block_{block.ID}_branchbool_true"));
+					// copies for true block, if needed
+					HandlePhiCopies(data, block, trueBlock, allocContext);
+					data.Add(MIR.Jmp($".block_{trueBlock.ID}"));
+					data.AddRange(GetMIR(trueBlock, ctx, lowererContext, allocContext));
+					data.AddRange(GetMIR(falseBlock, ctx, lowererContext, allocContext));
+				} break;
+				case IrKind.BranchAlways: {
+					var targetBlock = (instr[0] as IrParam.Block)!.Blk;
+					// copies for target block, if needed
+					HandlePhiCopies(data, block, targetBlock, allocContext);
+					data.Add(MIR.Jmp($".block_{targetBlock.ID}"));
+					data.AddRange(GetMIR(targetBlock, ctx, lowererContext, allocContext));
+				} break;
 				case IrKind.Copy: {
 					var reg = (instr[0] as IrParam.Register)!;
 					var regName = allocContext.GetName(reg);
@@ -277,6 +438,9 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							switch (src) {
 								case IrParam.Int i: {
 									data.Add(MIR.CopyInteger(dest, BitSize(reg.Type), i.Value));
+								} break;
+								case IrParam.Bool b: {
+									data.Add(MIR.CopyInteger(dest, 8, b.Value ? 1ul : 0ul));
 								} break;
 								case IrParam.Register r: {
 									regName = allocContext.GetName(r);
@@ -292,8 +456,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 						default:
 							throw new Exception($"GetMIR(Copy.Dest: {regClass}) not implemented yet");
 					}
-					break;
-				}
+				} break;
 				case IrKind.LoadArguments:
 					if (instr.Params.Length != 0) throw new Exception("cannot generate MIR for non-zero argument count functions");
 					data.Add(MIR.Preamble());
@@ -390,7 +553,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 											}
 										} break;
 									default:
-										throw new Exception($"{regClass} add not implemented yet");
+										throw new Exception($"{regClass} multiply not implemented yet");
 								}
 							} break;
 						case IrOpKind.Divide: {
@@ -492,6 +655,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			strVal = label_text,
 		};
 
+		public static MIR Comment(string label_text) => new() {
+			kind = Kind.Comment,
+			strVal = label_text,
+		};
+
 		public static MIR Preamble() => new() {
 			kind = Kind.Preamble,
 		};
@@ -500,6 +668,21 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			kind = Kind.Return,
 			reg0Val = src,
 			int0Val = (ulong)bitCount,
+		};
+
+		public static MIR Jmp(string label_text) => new() {
+			kind = Kind.Jmp,
+			strVal = label_text,
+		};
+
+		public static MIR Je(string label_text) => new() {
+			kind = Kind.Je,
+			strVal = label_text,
+		};
+
+		public static MIR Jne(string label_text) => new() {
+			kind = Kind.Jne,
+			strVal = label_text,
 		};
 
 		public static MIR CopyInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
@@ -511,6 +694,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 		public static MIR CopyRegister(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
 			kind = Kind.CopyRegister,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+		};
+
+		public static MIR TestInteger(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
+			kind = Kind.TestInteger,
 			reg0Val = dest,
 			int0Val = (ulong)bitCount,
 			reg1Val = src,
@@ -563,9 +753,17 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		public Kind kind;
 		public enum Kind {
 			Label,
+			Comment,
+
 			Preamble,
 			CopyInteger,
 			CopyRegister,
+
+			Jmp,
+			Je,
+			Jne,
+
+			TestInteger,
 
 			XorInteger,
 
@@ -588,6 +786,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	}
 
 	class x86_64_Registers : IRegisterSet<x86_64_Classes, x86_64_Names> {
+		public x86_64_Classes[] Classes() => new[] {x86_64_Classes.Integer};
+
 		public x86_64_Classes Classify(IrParam.Register r) {
 			switch (r.Type) {
 				case Intrinsic i:
@@ -622,6 +822,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							x86_64_Names.R15
 						};
 					}
+				default:
+					throw new Exception($"Cannot get ordered register for class {c} yet");
 			}
 			throw new Exception("TODO!");
 		}

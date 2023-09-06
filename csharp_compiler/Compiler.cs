@@ -75,9 +75,8 @@ public class Compiler {
 		TypedFileNode AST = GetAnalyzedAST(file);
 		PrettyPrint(AST);
 
-		IrResult instructions = GetCopyPropagatedIR(file);
-		var functions = AST.Functions.Select(f => f.Name).ToArray();
-		var intrinsics = AST.Platform.Intrinsics.Select(i => i.Key).ToArray();
+		// IrResult instructions = GetCopyPropagatedIR(file);
+		IrResult instructions = GetMem2RegIR(file);
 		if (Args.DrawGraphs) {
 			foreach (var func in instructions.Functions.Keys) {
 				IrPrinter.DrawGraph(func, instructions.Functions[func]);

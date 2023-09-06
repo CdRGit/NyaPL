@@ -42,6 +42,7 @@ public class CopyPropagation {
 						case IrParam.Register r:
 							// check the other value
 							switch (instr[1]) {
+								case IrParam.Bool:
 								case IrParam.Int:
 									ctx.SetRegister(r, r);
 									block.AddInstr(instr);
