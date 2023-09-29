@@ -161,7 +161,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					asmWriter.WriteLine("    push rbp");
 					asmWriter.WriteLine("    mov rbp, rsp");
 					break;
-				case MIR.Kind.Comment: break;
+				case MIR.Kind.Comment:
 					asmWriter.WriteLine($"; {instr.strVal}");
 					break;
 				case MIR.Kind.Label:
@@ -228,10 +228,6 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					asmWriter.WriteLine($"    idiv {srcName}");
 				} break;
 				case MIR.Kind.Return: {
-					if (instr.reg0Val != x86_64_Names.RAX) {
-						var regName = GetRegName(instr.reg0Val, instr.int0Val);
-						asmWriter.WriteLine($"    mov {GetRegName(x86_64_Names.RAX, instr.int0Val)}, {regName}");
-					}
 					asmWriter.WriteLine("    mov rsp, rbp");
 					asmWriter.WriteLine("    pop rbp");
 					asmWriter.WriteLine("    ret");
@@ -410,6 +406,14 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		}
 	}
 
+	private static x86_64_Names[] callee_preserved = {
+		x86_64_Names.RBX,
+		x86_64_Names.R12,
+		x86_64_Names.R13,
+		x86_64_Names.R14,
+		x86_64_Names.R15,
+	};
+
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
@@ -480,13 +484,22 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				case IrKind.LoadArguments:
 					if (instr.Params.Length != 0) throw new Exception("cannot generate MIR for non-zero argument count functions");
 					data.Add(MIR.Preamble());
+					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
+						data.Add(MIR.Comment($"Preserve: {pair.Item2}"));
+						data.Add(MIR.PushRegister(pair.Item2));
+					}
 					break;
 				case IrKind.Return: {
 					var reg = (instr[0] as IrParam.Register)!;
 					var regName = allocContext.GetName(reg);
 					if (regName == null) throw new Exception($"Register {instr[0]} not named");
 					var (regClass, src) = regName.Value;
-					data.Add(MIR.Return(src, BitSize(reg.Type)));
+					data.Add(MIR.MovRegister(x86_64_Names.RAX, BitSize(reg.Type), src));
+					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
+						data.Add(MIR.Comment($"Restore: {pair.Item2}"));
+						data.Add(MIR.PopRegister(pair.Item2));
+					}
+					data.Add(MIR.Return);
 				} break;
 				case IrKind.Intrinsic: {
 					var regName = allocContext.GetName((instr[0] as IrParam.Register)!);
@@ -702,10 +715,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			kind = Kind.Preamble,
 		};
 
-		public static MIR Return(x86_64_Names src, int bitCount) => new() {
+		public static MIR Return => new() {
 			kind = Kind.Return,
-			reg0Val = src,
-			int0Val = (ulong)bitCount,
 		};
 
 		public static MIR Jump(string label_text) => new() {

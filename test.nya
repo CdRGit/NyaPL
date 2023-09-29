@@ -1,5 +1,4 @@
 fn main(): i32 {
-	let (u, v, w, x, y, z) = (0, 1, 2, 3, 4, 5);
 	let mut (a, b) = (0, 1);
 	let mut i = 0;
 	let mut idx = 13;
@@ -7,6 +6,5 @@ fn main(): i32 {
 		(a, b) = (b, a + b);
 		i = i + 1;
 	}
-	let c = a + b + i + idx + u + v + w + x + y + z;
 	return a;
 }
