@@ -68,6 +68,15 @@ public static class IrPrinter {
 
 	private static void PrettyPrint(StringBuilder builder, IrInstr instr) {
 		switch (instr.Kind) {
+			case IrKind.MachineSpecific:
+				builder.Append("MACHINE SPECIFIC [");
+				for (int i = 0; i < instr.Params.Length; i++)
+				{
+					if (i != 0) builder.Append(", ");
+					PrettyPrint(builder, instr[i]);
+				}
+				builder.Append("]\n");
+				break;
 			case IrKind.Phi:
 				PrettyPrint(builder, instr[0]!);
 				builder.Append(" <- Φ [");
@@ -193,6 +202,10 @@ public static class IrPrinter {
 		{IrOpKind.NotEq,   "not_equal"},
 	};
 	private static void PrettyPrint(StringBuilder builder, IrParam param) {
+		if (param.GetType().IsGenericType) {
+			builder.Append($"{param}");
+			return;
+		}
 		switch (param) {
 			case IrParam.Block b:
 				builder.Append($"block.{b.Blk.ID}");

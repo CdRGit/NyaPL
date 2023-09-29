@@ -38,9 +38,19 @@ public enum IrKind {
 
 	Intrinsic,
 	IntrinsicImpure,
+
+	MachineSpecific,
 }
 
 public abstract class IrParam {
+	public class MachineSpecific<T> : IrParam {
+		public T Value { get; }
+		public MachineSpecific(T t) {
+			Value = t;
+		}
+		public override string ToString() => $"MachineSpecific({Value})";
+	}
+
 	public class Local : IrParam {
 		public string Name { get; }
 		public Typ Type { get; }

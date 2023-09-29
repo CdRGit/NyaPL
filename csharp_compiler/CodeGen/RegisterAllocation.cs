@@ -52,23 +52,31 @@ public static class RegisterAllocation {
 		HashSet<uint> dying_next = new();
 		for (int i = b.Instructions.Count - 1; i >= 0; --i) {
 			var instr = b.Instructions[i];
-			foreach (var parameter in instr.Params) {
-				if (parameter is IrParam.Register r) {
-					if (!live_vals.Contains(r.Index)) {
-						alive_next.Add(r.Index);
-						if (!g.vertices.ContainsKey(r.Index)) {
-							var vertex = new InterferenceGraph<C>.Vertex();
-							vertex.register = r;
-							vertex.degree = 0;
-							vertex.adjacent = new();
-							g.vertices[r.Index] = vertex;
+			if (instr.Kind == IrKind.LoadArguments && false) {
+				foreach (var parameter in instr.Params) {
+					if (parameter is IrParam.Register r) {
+						dying_next.Add(r.Index);
+					}
+				}
+			} else {
+				foreach (var parameter in instr.Params) {
+					if (parameter is IrParam.Register r) {
+						if (!live_vals.Contains(r.Index)) {
+							alive_next.Add(r.Index);
+							if (!g.vertices.ContainsKey(r.Index)) {
+								var vertex = new InterferenceGraph<C>.Vertex();
+								vertex.register = r;
+								vertex.degree = 0;
+								vertex.adjacent = new();
+								g.vertices[r.Index] = vertex;
+							}
 						}
 					}
 				}
-			}
-			if (instr.Kind != IrKind.Return && instr.Kind != IrKind.BranchBool) {
-				if (instr[0] is IrParam.Register r) {
-					dying_next.Add(r.Index);
+				if (instr.Kind != IrKind.Return && instr.Kind != IrKind.BranchBool) {
+					if (instr[0] is IrParam.Register r) {
+						dying_next.Add(r.Index);
+					}
 				}
 			}
 			live_vals.ExceptWith(dying_next);
@@ -78,8 +86,8 @@ public static class RegisterAllocation {
 					g.edges.Add((reg, r));
 					g.vertices[reg].adjacent.Add(g.vertices[r]);
 				}
+				live_vals.Add(r);
 			}
-			live_vals.UnionWith(alive_next);
 			alive_next.Clear();
 			dying_next.Clear();
 		}
@@ -174,8 +182,7 @@ public static class RegisterAllocation {
 		var availableRegisters = usable.Length;
 		Stack<InterferenceGraph<C>.Vertex> stack = new();
 		while (graph.vertices.Values.Any(v => v.degree < availableRegisters && v.degree > -1)) {
-			var currentIdx = 0u;
-			while (graph.vertices[currentIdx].degree >= availableRegisters || graph.vertices[currentIdx].degree <= -1) ++currentIdx;
+			var currentIdx = graph.vertices.First(p => p.Value.degree < availableRegisters && p.Value.degree > -1).Key;
 			graph.vertices[currentIdx].adjacent.Select(v => --v.degree).ToArray();
 			var cur = graph.vertices[currentIdx];
 			cur.degree = -1;

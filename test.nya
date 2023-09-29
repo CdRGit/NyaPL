@@ -1,10 +1,17 @@
 fn main(): i32 {
+	return apply(13, fib_iter);
+}
+
+fn fib_iter(idx: i32): i32 {
 	let mut (a, b) = (0, 1);
 	let mut i = 0;
-	let mut idx = 13;
 	while (i != idx) {
 		(a, b) = (b, a + b);
 		i = i + 1;
 	}
 	return a;
+}
+
+fn apply(val: i32, function: fn (i32): i32): i32 {
+	return function(val);
 }
