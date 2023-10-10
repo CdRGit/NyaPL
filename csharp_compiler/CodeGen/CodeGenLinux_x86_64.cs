@@ -39,6 +39,87 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			} else return param;
 		}
 		public IrInstr ReplaceRegisters(IrInstr instr) => new(instr.Kind, instr.Params.Select(i => ReplaceRegister(i)).ToArray());
+
+		private bool IsSimpleType(Typ type) {
+			switch (type) {
+				case Intrinsic i: {
+					switch (i.Type) {
+						case IntrinsicType.I32:
+							return true;
+						default:
+							throw new Exception($"Cannot determine simplicity of intrinsic {i.Type}");
+					}
+				} break;
+				case Apply a: {
+					switch (a.BaseType) {
+						case Function:
+							return true;
+						case Intrinsic i: {
+							switch (i.Type) {
+								case IntrinsicType.Tuple:
+									return false;
+								default:
+									throw new Exception($"Cannot determine simplicity of apply intrinsic {i.Type}");
+							}
+						} break;
+						default:
+							throw new Exception($"Cannot determine simplicity of apply {a.BaseType}");
+					}
+				} break;
+			}
+			throw new Exception($"TODO: {type}");
+		}
+
+		private IEnumerable<IrParam.Register> Flatten(IrParam param) {
+			switch (param) {
+				case IrParam.Register r:
+					return new[] {r};
+				case IrParam.CompositeRegister c:
+					return c.Registers;
+				default:
+					throw new Exception("UNREACHABLE");
+			}
+		}
+
+		private IrParam MakeRegister(Typ type, IrParam.Register? register) {
+			if (IsSimpleType(type)) return MakeNewRegister(type); // trivial case handled
+
+			switch (type) {
+				case Apply a: {
+					switch (a.BaseType) {
+						case Intrinsic i: {
+							switch (i.Type) {
+								case IntrinsicType.Tuple: {
+									// it's suffering time
+									// loop through all argument types and map those into their relevant types
+									var args = a.ParameterTypes.SelectMany(t => Flatten(MakeRegister(t, null)));
+									var curr_col = Console.ForegroundColor;
+									if (register != null) {
+										SetTuple(register, args);
+									}
+									return new IrParam.CompositeRegister(args, type);
+								} break;
+								default:
+									throw new Exception($"Cannot create composite register for apply intrinsic {i.Type}");
+							}
+						} break;
+					}
+				} break;
+			}
+			throw new Exception($"TODO: {type}");
+		}
+
+		public IrParam ReplaceWithCompositeRegister(IrParam param) {
+			if (param is IrParam.Register r) {
+				if (IsSimpleType(r.Type)) {
+					return ReplaceRegister(param);
+				} else {
+					// here we fuckign go
+					return MakeRegister(r.Type, r);
+				}
+			} else return param;
+		}
+		public IrInstr ReplaceWithCompositeRegisters(IrInstr instr) => new(instr.Kind, instr.Params.Select(i => ReplaceWithCompositeRegister(i)).ToArray());
 	}
 
 	enum MachineSpecificIrInstrs {
@@ -51,10 +132,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					// let's pretend there's no issue for now :)
 					// throw new Exception("VSDRLA for arguments has not been implemented yet, skill issue ♡");
 				}
-				yield return ctx.ReplaceRegisters(instr);
+				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
 			case IrKind.Call: {
-				yield return ctx.ReplaceRegisters(instr);
+				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
 			}
 			case IrKind.CreateTuple: {
@@ -451,12 +532,98 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		MEMORY,
 	}
 
+	struct Eightbyte {
+		public Typ[] fieldTypes;
+	}
+	private SysV_Classes SysV_Classify_Eightbytes(Eightbyte[] vals) {
+		if (vals.Length > 4) return SysV_Classes.MEMORY;
+		var classes = new SysV_Classes[vals.Length];
+		for (int i = 0; i < classes.Length; i++) {
+			classes[i] = SysV_Classes.NO_CLASS;
+		}
+		for (int i = 0; i < vals.Length; i++) {
+			Console.WriteLine($"{i}");
+			foreach (var t in vals[i].fieldTypes) {
+				var c = SysV_Classify(t);
+				Console.WriteLine($"  {c}");
+				if (classes[i] == c) {
+					// all good, let's go
+				} else if (classes[i] == SysV_Classes.NO_CLASS) {
+					classes[i] = c;
+				} else {
+					throw new Exception("TODO!");
+				}
+			}
+		}
+		if (classes.Any(c => c == SysV_Classes.MEMORY)) return SysV_Classes.MEMORY;
+		// x87 stuff, we do not care
+		// sse, we do not care
+		return classes[0];
+	}
+
+	private (int, int) ByteData(Typ type) {
+		switch (type) {
+			case Intrinsic i: {
+				switch (i.Type) {
+					case IntrinsicType.I32:
+						return (4, 4);
+					default:
+						throw new Exception($"TODO: Intrinsic[{i.Type}]");
+				}
+			} break;
+			case Apply a: {
+				switch (a.BaseType) {
+					case Function:
+						return (8, 8);
+					default:
+						throw new Exception($"TODO: Apply[{a.BaseType}]");
+				}
+			} break;
+			default:
+				throw new Exception($"TODO: {type}");
+		}
+	}
+
+	private Eightbyte[] SplitUp(IEnumerable<Typ> types) {
+		List<Eightbyte> vals = new();
+		int currOffset = 0;
+		List<Typ> eightbyteTypes = new();
+		foreach (var t in types) {
+			var (size, align) = ByteData(t);
+			Console.WriteLine($"({size}, {align})");
+			if (currOffset % align != 0) {
+				currOffset += align - currOffset % align;
+			}
+			if (currOffset >= 8) {
+				Console.WriteLine($"bump");
+				vals.Add(new Eightbyte {fieldTypes = eightbyteTypes.ToArray()});
+				eightbyteTypes = new();
+				currOffset = 0;
+			}
+			Console.WriteLine($"{currOffset}");
+			currOffset += size;
+			eightbyteTypes.Add(t);
+		}
+		if (eightbyteTypes.Count != 0) {
+			vals.Add(new Eightbyte {fieldTypes = eightbyteTypes.ToArray()});
+		}
+		return vals.ToArray();
+	}
+
 	private SysV_Classes SysV_Classify(Typ type) {
 		switch (type) {
 			case Apply a: {
 				switch (a.BaseType) {
 					case Function:
 						return SysV_Classes.INTEGER;
+					case Intrinsic i: {
+						switch (i.Type) {
+							case IntrinsicType.Tuple:
+								return SysV_Classify_Eightbytes(SplitUp(a.ParameterTypes));
+							default:
+								throw new Exception($"Cannot classify Apply[Intrinsic[{i.Type}]] yet");
+						}
+					} break;
 					default:
 						throw new Exception($"Cannot classify Apply[{a.BaseType}] yet");
 				}
@@ -479,6 +646,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		switch (p) {
 			case IrParam.Register r:
 				return SysV_Classify(r.Type);
+			case IrParam.CompositeRegister c:
+				return SysV_Classify(c.Type);
 			default:
 				throw new Exception("Cannot classify non-registers");
 		}
@@ -562,7 +731,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var overwritten_targets = new Dictionary<x86_64_Names, x86_64_Names>();
 					// if we need the target data somewhere we'll push, mov, pop into the then-free register
 					int offset = 0;
-					foreach (var r_arg in register_arguments) {
+					foreach (var r_arg in register_arguments.SelectMany(r => r is IrParam.CompositeRegister c ? c.Registers : new[] {r})) {
 						offset++;
 						var reg = (r_arg.Key as IrParam.Register)!;
 						var regName = allocContext.GetName(reg);

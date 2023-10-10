@@ -1,4 +1,6 @@
 using System.Linq;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 using Nyapl.Typing.Types;
 
@@ -68,6 +70,15 @@ public abstract class IrParam {
 			Index = index;
 		}
 		public override string ToString() => $"Register({Type}, {Index})";
+	}
+	public class CompositeRegister : IrParam {
+		public Typ Type { get; }
+		public ReadOnlyCollection<Register> Registers { get; }
+		public CompositeRegister(IEnumerable<Register> registers, Typ type) {
+			Registers = registers.ToList().AsReadOnly();
+			Type = type;
+		}
+		public override string ToString() => $"CompositeRegister({Type})";
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }

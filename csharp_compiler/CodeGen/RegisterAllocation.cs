@@ -54,12 +54,31 @@ public static class RegisterAllocation {
 			var instr = b.Instructions[i];
 			if (instr.Kind == IrKind.LoadArguments && false) {
 				foreach (var parameter in instr.Params) {
+					if (parameter is IrParam.CompositeRegister c) {
+						foreach (var r_ in c.Registers) {
+							dying_next.Add(r_.Index);
+						}
+					}
 					if (parameter is IrParam.Register r) {
 						dying_next.Add(r.Index);
 					}
 				}
 			} else {
 				foreach (var parameter in instr.Params) {
+					if (parameter is IrParam.CompositeRegister c) {
+						foreach (var r_ in c.Registers) {
+							if (!live_vals.Contains(r_.Index)) {
+								alive_next.Add(r_.Index);
+								if (!g.vertices.ContainsKey(r_.Index)) {
+									var vertex = new InterferenceGraph<C>.Vertex();
+									vertex.register = r_;
+									vertex.degree = 0;
+									vertex.adjacent = new();
+									g.vertices[r_.Index] = vertex;
+								}
+							}
+						}
+					}
 					if (parameter is IrParam.Register r) {
 						if (!live_vals.Contains(r.Index)) {
 							alive_next.Add(r.Index);
