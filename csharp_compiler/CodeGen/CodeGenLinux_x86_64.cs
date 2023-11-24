@@ -980,6 +980,86 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return data;
 	}
 
+	private IEnumerable<MIR> GenerateLoadArguments(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
+		List<MIR> data = new();
+		throw new Exception("TODO!");
+					data.Add(MIR.Preamble());
+					if (instr.Params.Length != 0) {
+						// it's hell time
+						// SYS-V ABI HERE WE FUCKING COME BABYYYY
+						// let's classify the arguments
+						var arg_classes = instr.Params.Select(a => (a, SysV_Classify(a))).ToArray();
+						var registers_used = new Dictionary<SysV_Classes, int>();
+						var stack_args = new Stack<(IrParam, SysV_Classes)>();
+						var register_arguments = new Dictionary<IrParam, x86_64_Names>();
+						foreach (var arg in arg_classes) {
+							if (sysv_argument_registers.ContainsKey(arg.Item2)) {
+								if (!registers_used.ContainsKey(arg.Item2))
+									registers_used[arg.Item2] = 0;
+								var registers = sysv_argument_registers[arg.Item2];
+								var count = registers_used[arg.Item2];
+								if (count < registers.Length) {
+									register_arguments[arg.Item1] = registers[count];
+									registers_used[arg.Item2]++;
+								} else {
+									throw new Exception("stack spilling arguments not implemented yet");
+								}
+							} else {
+								throw new Exception("non-register arguments not implemented yet");
+							}
+						}
+						var overwritten_targets = new Dictionary<x86_64_Names, x86_64_Names>();
+						// if we need the target data somewhere we'll push, mov, pop into the then-free register
+						int offset = 0;
+						foreach (var r_arg in register_arguments.SelectMany<KeyValuePair<IrParam, x86_64_Names>, (IrParam Key, x86_64_Names Value)>(r => r.Key is IrParam.CompositeRegister c ? c.Registers.Select(k => (k as IrParam, r.Value)) : new[] {(r.Key as IrParam, r.Value)})) {
+							offset++;
+							var reg = (r_arg.Key as IrParam.Register)!;
+							var regName = allocContext.GetName(reg);
+							if (regName == null) throw new Exception($"Register {reg} not named");
+							var (regClass, src) = regName.Value;
+							var target = r_arg.Value;
+
+							var collission = register_arguments.Skip(offset).Any((p) => {
+								var r = (p.Key as IrParam.Register)!;
+								var rName = allocContext.GetName(r);
+								if (rName == null) throw new Exception($"Register {r} not named");
+								return rName.Value.Item2 == target;
+							});
+							Console.WriteLine(collission);
+							if (collission)
+								throw new Exception("TODO!");
+							else {
+								if (overwritten_targets.ContainsKey(src)) {
+									throw new Exception("TODO!");
+								} else {
+									data.Add(MIR.Comment($"Load argument {src} <- {target}"));
+									data.Add(MIR.MovRegister(src, BitSize(reg.Type), target));
+								}
+							}
+						}
+						if (stack_args.Count != 0) throw new Exception("stack args are not ready yet");
+					}
+					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
+						data.Add(MIR.Comment($"Preserve: {pair.Item2}"));
+						data.Add(MIR.PushRegister(pair.Item2));
+					}
+	}
+
+	private IEnumerable<MIR> GenerateReturn(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
+		List<MIR> data = new();
+		throw new Exception("TODO!");
+					var reg = (instr[0] as IrParam.Register)!;
+					var regName = allocContext.GetName(reg);
+					if (regName == null) throw new Exception($"Register {instr[0]} not named");
+					var (regClass, src) = regName.Value;
+					data.Add(MIR.MovRegister(x86_64_Names.RAX, BitSize(reg.Type), src));
+					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
+						data.Add(MIR.Comment($"Restore: {pair.Item2}"));
+						data.Add(MIR.PopRegister(pair.Item2));
+					}
+					data.Add(MIR.Return);
+	}
+
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
@@ -988,9 +1068,15 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		foreach (var instr in block.Instructions) {
 			data.Add(MIR.Comment($"{instr}"));
 			switch (instr.Kind) {
-				case IrKind.Call: {
+				case IrKind.Call:
 					data.AddRange(GenerateCall(instr, ctx, lowererContext, allocContext));
-				} break;
+					break;
+				case IrKind.LoadArguments:
+					data.AddRange(GenerateLoadArguments(instr, ctx, lowererContext, allocContext));
+					break;
+				case IrKind.Return:
+					data.AddRange(GenerateReturn(instr, ctx, lowererContext, allocContext));
+					break;
 
 				// handled in branches
 				case IrKind.Phi: continue;
@@ -1057,80 +1143,6 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 						default:
 							throw new Exception($"GetMIR(Copy.Dest: {regClass}) not implemented yet");
 					}
-				} break;
-				case IrKind.LoadArguments:
-					data.Add(MIR.Preamble());
-					if (instr.Params.Length != 0) {
-						// it's hell time
-						// SYS-V ABI HERE WE FUCKING COME BABYYYY
-						// let's classify the arguments
-						var arg_classes = instr.Params.Select(a => (a, SysV_Classify(a))).ToArray();
-						var registers_used = new Dictionary<SysV_Classes, int>();
-						var stack_args = new Stack<(IrParam, SysV_Classes)>();
-						var register_arguments = new Dictionary<IrParam, x86_64_Names>();
-						foreach (var arg in arg_classes) {
-							if (sysv_argument_registers.ContainsKey(arg.Item2)) {
-								if (!registers_used.ContainsKey(arg.Item2))
-									registers_used[arg.Item2] = 0;
-								var registers = sysv_argument_registers[arg.Item2];
-								var count = registers_used[arg.Item2];
-								if (count < registers.Length) {
-									register_arguments[arg.Item1] = registers[count];
-									registers_used[arg.Item2]++;
-								} else {
-									throw new Exception("stack spilling arguments not implemented yet");
-								}
-							} else {
-								throw new Exception("non-register arguments not implemented yet");
-							}
-						}
-						var overwritten_targets = new Dictionary<x86_64_Names, x86_64_Names>();
-						// if we need the target data somewhere we'll push, mov, pop into the then-free register
-						int offset = 0;
-						foreach (var r_arg in register_arguments.SelectMany<KeyValuePair<IrParam, x86_64_Names>, (IrParam Key, x86_64_Names Value)>(r => r.Key is IrParam.CompositeRegister c ? c.Registers.Select(k => (k as IrParam, r.Value)) : new[] {(r.Key as IrParam, r.Value)})) {
-							offset++;
-							var reg = (r_arg.Key as IrParam.Register)!;
-							var regName = allocContext.GetName(reg);
-							if (regName == null) throw new Exception($"Register {reg} not named");
-							var (regClass, src) = regName.Value;
-							var target = r_arg.Value;
-
-							var collission = register_arguments.Skip(offset).Any((p) => {
-								var r = (p.Key as IrParam.Register)!;
-								var rName = allocContext.GetName(r);
-								if (rName == null) throw new Exception($"Register {r} not named");
-								return rName.Value.Item2 == target;
-							});
-							Console.WriteLine(collission);
-							if (collission)
-								throw new Exception("TODO!");
-							else {
-								if (overwritten_targets.ContainsKey(src)) {
-									throw new Exception("TODO!");
-								} else {
-									data.Add(MIR.Comment($"Load argument {src} <- {target}"));
-									data.Add(MIR.MovRegister(src, BitSize(reg.Type), target));
-								}
-							}
-						}
-						if (stack_args.Count != 0) throw new Exception("stack args are not ready yet");
-					}
-					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
-						data.Add(MIR.Comment($"Preserve: {pair.Item2}"));
-						data.Add(MIR.PushRegister(pair.Item2));
-					}
-					break;
-				case IrKind.Return: {
-					var reg = (instr[0] as IrParam.Register)!;
-					var regName = allocContext.GetName(reg);
-					if (regName == null) throw new Exception($"Register {instr[0]} not named");
-					var (regClass, src) = regName.Value;
-					data.Add(MIR.MovRegister(x86_64_Names.RAX, BitSize(reg.Type), src));
-					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
-						data.Add(MIR.Comment($"Restore: {pair.Item2}"));
-						data.Add(MIR.PopRegister(pair.Item2));
-					}
-					data.Add(MIR.Return);
 				} break;
 				case IrKind.Intrinsic: {
 					var regName = allocContext.GetName((instr[0] as IrParam.Register)!);
