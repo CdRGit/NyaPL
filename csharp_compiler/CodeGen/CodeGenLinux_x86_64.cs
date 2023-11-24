@@ -297,6 +297,12 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					long offset = (long)instr.int1Val;
 					asmWriter.WriteLine($"    mov {dstName}[{offset}], {srcName}");
 				} break;
+				case MIR.Kind.MovIndirectRegister: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, 64);
+					long offset = (long)instr.int1Val;
+					asmWriter.WriteLine($"    mov {dstName}, {srcName}[{offset}]");
+				} break;
 				case MIR.Kind.MovLabel: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					asmWriter.WriteLine($"    mov {dstName}, {instr.strVal}");
@@ -324,6 +330,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    add {dstName}, {srcName}");
+				} break;
+				case MIR.Kind.AddInteger: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					asmWriter.WriteLine($"    add {dstName}, {instr.int1Val}");
 				} break;
 				case MIR.Kind.SubRegister: {
 					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
@@ -825,11 +835,81 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		}
 	}
 
+	static readonly x86_64_Names[] INT_ARG_REGS = {x86_64_Names.RDI, x86_64_Names.RSI, x86_64_Names.RDX, x86_64_Names.RCX, x86_64_Names.R8, x86_64_Names.R9};
 	private IEnumerable<MIR> PickupArguments(
-			(Typ ret, IEnumerable<Typ> args) argTypes, bool retOnStack, IrInstr instr,
+			(Typ ret, IEnumerable<Typ> args) argTypes, bool retOnStack, ulong spillSize, IrInstr instr,
 			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
 	{
-		throw new Exception("TODO!");
+		int intArgRegsIdx = retOnStack ? 1 : 0;
+
+		var paramRegs = instr.Params.Skip(2);
+		ulong srcOffset = 0;
+		ulong dstOffset = 0;
+		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
+			var classed = SysV_Classify(type);
+			int eightBytesIn = 0;
+			foreach (var eb in classed.eightBytes) {
+				switch (classed.Item1) {
+					case SysV_Classes.INTEGER:
+						if (intArgRegsIdx + classed.eightBytes.Length - eightBytesIn < INT_ARG_REGS.Length) {
+							yield return MIR.Comment($"Picking up INTEGER argument eight-byte into {INT_ARG_REGS[intArgRegsIdx]}");
+							yield return MIR.MovIndirectRegister(INT_ARG_REGS[intArgRegsIdx++], 64, x86_64_Names.RSP, (long)srcOffset);
+						} else {
+							throw new Exception("stack-passing");
+						}
+						break;
+					default:
+						throw new Exception($"PickupArguments({classed})");
+				}
+				eightBytesIn++;
+				srcOffset += 8;
+			}
+		}
+	}
+
+	static readonly x86_64_Names[] INT_RET_REGS = {x86_64_Names.RAX, x86_64_Names.RDX};
+	private IEnumerable<MIR> CollectReturnValue((Typ ret, IEnumerable<Typ> args) argTypes, IrParam resultReg, bool retOnStack,
+			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext
+	) {
+		var classed = SysV_Classify(argTypes.ret);
+		switch (classed.Item1) {
+			case SysV_Classes.INTEGER: {
+				if (retOnStack) {
+					throw new Exception("stack-passing");
+				} else {
+					yield return MIR.Comment($"Return data in registers, reserving a little bit of stack space for handling");
+					yield return MIR.SubInteger(x86_64_Names.RSP, 64, (ulong)classed.eightBytes.Length * 8);
+
+					// spill it back onto the stack
+					for (int i = 0; i < classed.eightBytes.Length; i++) {
+						yield return MIR.Comment($"spill {INT_RET_REGS[i]}");
+						yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, INT_RET_REGS[i], i * 8);
+					}
+
+					// pick it back up
+					var flattened = Flatten(resultReg).ToArray();
+					int flattenedIdx = 0;
+					ulong offset = 0;
+					foreach (var eb in classed.eightBytes) {
+						ulong internalOffset = 0;
+						foreach (var t in eb.fieldTypes) {
+							var r = flattened[flattenedIdx++];
+							var rName = allocContext.GetName(r);
+							if (rName == null) throw new Exception($"Register {r} not named");
+							yield return MIR.Comment($"Picking up {rName.Value.Item2} [{r}] from stack");
+							yield return MIR.MovIndirectRegister(rName.Value.Item2, BitSize(t), x86_64_Names.RSP, (long)(offset + internalOffset));
+							internalOffset += (ulong)(BitSize(t) / 8);
+						}
+						offset += 8;
+					}
+
+					yield return MIR.Comment($"Return data handled");
+					yield return MIR.AddInteger(x86_64_Names.RSP, 64, (ulong)classed.eightBytes.Length * 8);
+				}
+			} break;
+			default:
+				throw new Exception($"CollectReturnValue({classed})");
+		}
 	}
 
 	private IEnumerable<MIR> GenerateCall(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
@@ -876,90 +956,27 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		data.Add(MIR.MovRegister(x86_64_Names.RBX, 64, addrName.Value.Item2));
 
 		// time to pick up the spilled memory into argument registers
-		data.AddRange(PickupArguments(argTypes, retOnStack, instr, ctx, lowererContext, allocContext));
+		data.AddRange(PickupArguments(argTypes, retOnStack, stackSpillSize, instr, ctx, lowererContext, allocContext));
 
-		throw new Exception("TODO! GenerateCall");
-		// it's hell time
-		// SYS-V ABI HERE WE FUCKING COME BABYYYY
-		// preserve caller preserved registers
-		// skip the return value storage if it's here
-		var rreg = (instr[0] as IrParam.Register)!;
-		var rregName = allocContext.GetName(rreg);
-		if (rregName == null) throw new Exception($"Register {rreg} not named");
-		var (rregClass, returnReg) = rregName.Value;
+		data.Add(MIR.Comment($"Cleaning up the spill-zone ({stackSpillSize} bytes)"));
+		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackSpillSize));
 
-		foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => caller_preserved.Contains(pair.Item2))) {
-			if (pair.Item2 == returnReg) continue;
-				data.Add(MIR.Comment($"Preserve: {pair.Item2}"));
-				data.Add(MIR.PushRegister(pair.Item2));
-		}
-		// let's classify the arguments
-		var arg_classes = instr.Params.Skip(2).Select(a => (a, SysV_Classify(a))).ToArray();
-		var registers_used = new Dictionary<SysV_Classes, int>();
-		var stack_args = new Stack<(IrParam, SysV_Classes)>();
-		var register_arguments = new Dictionary<IrParam, x86_64_Names>();
-		foreach (var arg in arg_classes) {
-			if (sysv_argument_registers.ContainsKey(arg.Item2)) {
-				if (!registers_used.ContainsKey(arg.Item2))
-					registers_used[arg.Item2] = 0;
-				var registers = sysv_argument_registers[arg.Item2];
-				var count = registers_used[arg.Item2];
-				if (count < registers.Length) {
-					register_arguments[arg.Item1] = registers[count];
-					registers_used[arg.Item2]++;
-				} else {
-					throw new Exception("stack spilling arguments not implemented yet");
-				}
-			} else {
-				throw new Exception("non-register arguments not implemented yet");
-			}
-		}
-		var creg = (instr[1] as IrParam.Register)!;
-		var cregName = allocContext.GetName(creg);
-		if (cregName == null) throw new Exception($"Register {creg} not named");
-		var (cregClass, call) = cregName.Value;
-		// let's now arrange the data into registers
-		// do we need the target data somewhere else in the call or are we a-ok to overwrite
-		var overwritten_targets = new Dictionary<x86_64_Names, x86_64_Names>();
-		// if we need the target data somewhere we'll push, mov, pop into the then-free register
-		int offset = 0;
-		foreach (var r_arg in register_arguments.SelectMany<KeyValuePair<IrParam, x86_64_Names>, (IrParam Key, x86_64_Names Value)>(r => r.Key is IrParam.CompositeRegister c ? c.Registers.Select(k => (k as IrParam, r.Value)) : new[] {(r.Key as IrParam, r.Value)})) {
-			offset++;
-			var reg = (r_arg.Key as IrParam.Register)!;
-			var regName = allocContext.GetName(reg);
-			if (regName == null) throw new Exception($"Register {reg} not named");
-			var (regClass, src) = regName.Value;
-			var target = r_arg.Value;
+		data.Add(MIR.Comment($"Actual call"));
+		data.Add(MIR.CallRegister(x86_64_Names.RBX));
 
-			var collission = register_arguments.Skip(offset).Any((p) => {
-				var r = (p.Key as IrParam.Register)!;
-				var rName = allocContext.GetName(r);
-				if (rName == null) throw new Exception($"Register {r} not named");
-				return rName.Value.Item2 == target;
-			});
-			collission |= target == call;
-			Console.WriteLine(collission);
-			if (collission)
-				throw new Exception("TODO!");
-			else {
-				if (overwritten_targets.ContainsKey(src)) {
-					throw new Exception("TODO!");
-				} else {
-					data.Add(MIR.Comment($"Load Param {target} <- {src}"));
-					data.Add(MIR.MovRegister(target, BitSize(reg.Type), src));
-				}
-			}
-		}
-		if (stack_args.Count != 0) throw new Exception("stack args are not ready yet");
+		// let's collect the result to our target register(s)
+		data.AddRange(CollectReturnValue(argTypes, instr[0]!, retOnStack, ctx, lowererContext, allocContext));
 
-		data.Add(MIR.CallRegister(call));
-		data.Add(MIR.MovRegister(returnReg, BitSize(rreg.Type), x86_64_Names.RAX));
-		// restore caller preserved registers
-		foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => caller_preserved.Contains(pair.Item2))) {
-			if (pair.Item2 == returnReg) continue; // skip return register
-			data.Add(MIR.Comment($"Restore: {pair.Item2}"));
-			data.Add(MIR.PopRegister(pair.Item2));
+		// clear pass space
+		data.Add(MIR.Comment($"Cleaning up the pass-zone ({stackPassSize} bytes)"));
+		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackPassSize));
+
+		// pick back up the registers
+		foreach (var reg in regsToPreserve.Reverse()) {
+			data.Add(MIR.Comment($"Restoring {reg}..."));
+			data.Add(MIR.PopRegister(reg));
 		}
+
 		return data;
 	}
 
@@ -1382,6 +1399,14 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			int1Val = (ulong)offset,
 		};
 
+		public static MIR MovIndirectRegister(x86_64_Names dest, int bitCount, x86_64_Names src, long offset) => new() {
+			kind = Kind.MovIndirectRegister,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+			int1Val = (ulong)offset,
+		};
+
 		public static MIR MovLabel(x86_64_Names dest, int bitCount, string label_text) => new() {
 			kind = Kind.MovLabel,
 			reg0Val = dest,
@@ -1420,6 +1445,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			reg0Val = dest,
 			int0Val = (ulong)bitCount,
 			reg1Val = src,
+		};
+
+		public static MIR AddInteger(x86_64_Names dest, int bitCount, ulong val) => new() {
+			kind = Kind.AddInteger,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			int1Val = val,
 		};
 
 		public static MIR SubRegister(x86_64_Names dest, int bitCount, x86_64_Names src) => new() {
@@ -1468,6 +1500,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			MovInteger,
 			CmoveInteger,
 			MovRegister,
+			MovIndirectRegister,
 			MovRegisterIndirect,
 			MovLabel,
 
@@ -1483,6 +1516,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			XorRegister,
 
 			AddRegister,
+			AddInteger,
 
 			SubRegister,
 			SubInteger,
