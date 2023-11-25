@@ -1,5 +1,6 @@
 fn main(): i32 {
-	return big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
+	let (a, _, _, _, _, _) = big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
+	return a;
 }
 
 fn add_two(val: i32): i32 {
@@ -8,7 +9,7 @@ fn add_two(val: i32): i32 {
 
 typedef func = fn (i32): i32;
 
-fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_val: i32): i32 {
+fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_val: i32): (i32, func, func, func, func, func) {
 	let (a, b, c, d, e) = lot_of_functions;
-	return a(b(c(d(e(in_val)))));
+	return (a(b(c(d(e(in_val))))), a, b, c, d, e);
 }

@@ -271,6 +271,12 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
 					asmWriter.WriteLine($"    mov {dstName}, {srcName}");
 				} break;
+				case MIR.Kind.LEA: {
+					var dstName = GetRegName(instr.reg0Val, instr.int0Val);
+					var srcName = GetRegName(instr.reg1Val, 64);
+					long offset = (long)instr.int1Val;
+					asmWriter.WriteLine($"    lea {dstName}, {srcName}[{offset}]");
+				} break;
 				case MIR.Kind.MovRegisterIndirect: {
 					var dstName = GetRegName(instr.reg0Val, 64);
 					var srcName = GetRegName(instr.reg1Val, instr.int0Val);
@@ -446,6 +452,12 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			{32, "esp"},
 			{16, "sp"},
 			{8,  "spl"},
+		}},
+		{ x86_64_Names.RBP, new() {
+			{64, "rbp"},
+			{32, "ebp"},
+			{16, "bp"},
+			{8,  "bpl"},
 		}},
 	};
 	private string GetRegName(x86_64_Names name, ulong bitCount) {
@@ -709,7 +721,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return val + (align - (val % align));
 	}
 
-	private (ulong size, bool retOnStack) GetRequiredStackPassSize(Typ returnType, IEnumerable<Typ> args) {
+	private (ulong size, bool retOnStack, ulong retSize) GetRequiredStackPassSize(Typ returnType, IEnumerable<Typ> args) {
 		// get the required size for the return type on-stack
 		var retClass = SysV_Classify(returnType);
 
@@ -724,6 +736,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					returnSize = 0;
 					retOnStack = false;
 				}
+				break;
+			case SysV_Classes.MEMORY:
+				returnSize = (ulong)retClass.eightBytes.Length * 8;
+				retOnStack = true;
 				break;
 			default:
 				throw new Exception($"TODO! return of class {retClass}");
@@ -746,13 +762,16 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 						throw new Exception($"TODO! stack-passing of argument {arg}");
 					}
 				} break;
+				case SysV_Classes.MEMORY: {
+					argSize += (ulong)arg.eightBytes.Length * 8;
+				} break;
 				default:
 					throw new Exception($"TODO! passing of argument {arg}");
 			}
 		}
 
 		argSize = Align(argSize, 8);
-		return (returnSize + argSize, retOnStack);
+		return (returnSize + argSize, retOnStack, returnSize);
 	}
 
 	private ulong GetRequiredStackSpillSize(IEnumerable<Typ> args) {
@@ -774,6 +793,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				var rName = allocContext.GetName(r);
 				if (rName == null) throw new Exception($"Register {r} not named");
 				return new[] { rName.Value.Item2 };
+			} break;
+			case IrParam.CompositeRegister c: {
+				return c.Registers.Select(r => {
+					var rName = allocContext.GetName(r);
+					if (rName == null) throw new Exception($"Register {r} not named");
+					return rName.Value.Item2;
+				}).ToArray();
 			} break;
 			default: throw new Exception($"TODO! GetRegsUsedForReturn for a return type of {returnVal.GetType()}");
 		}
@@ -823,8 +849,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		int intArgRegsIdx = retOnStack ? 1 : 0;
 
 		var paramRegs = instr.Params.Skip(2);
-		ulong srcOffset = 0;
-		ulong dstOffset = 0;
+		ulong srcOffset = 8;
+		ulong dstOffset = 8 + spillSize;
 		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
 			var classed = SysV_Classify(type);
 			int eightBytesIn = 0;
@@ -835,9 +861,18 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							yield return MIR.Comment($"Picking up INTEGER argument eight-byte into {INT_ARG_REGS[intArgRegsIdx]}");
 							yield return MIR.MovIndirectRegister(INT_ARG_REGS[intArgRegsIdx++], 64, x86_64_Names.RSP, (long)srcOffset);
 						} else {
-							throw new Exception("stack-passing");
+							yield return MIR.Comment($"Picking up INTEGER argument eight-byte into stack-pass-space");
+							yield return MIR.MovIndirectRegister(x86_64_Names.RBX, 64, x86_64_Names.RSP, (long)srcOffset);
+							yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, x86_64_Names.RBX, (long)dstOffset);
+							dstOffset += 8;
 						}
 						break;
+					case SysV_Classes.MEMORY: {
+						yield return MIR.Comment($"Picking up MEMORY argument eight-byte into stack-pass-space");
+						yield return MIR.MovIndirectRegister(x86_64_Names.RBX, 64, x86_64_Names.RSP, (long)srcOffset);
+						yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, x86_64_Names.RBX, (long)dstOffset);
+						dstOffset += 8;
+					} break;
 					default:
 						throw new Exception($"PickupArguments({classed})");
 				}
@@ -848,14 +883,53 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	}
 
 	static readonly x86_64_Names[] INT_RET_REGS = {x86_64_Names.RAX, x86_64_Names.RDX};
-	private IEnumerable<MIR> CollectReturnValue((Typ ret, IEnumerable<Typ> args) argTypes, IrParam resultReg, bool retOnStack,
+	private IEnumerable<MIR> CollectReturnValue((Typ ret, IEnumerable<Typ> args) argTypes, IrParam resultReg, bool retOnStack, ulong retOffsetOnStack,
 			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext
 	) {
 		var classed = SysV_Classify(argTypes.ret);
 		switch (classed.Item1) {
+			case SysV_Classes.MEMORY: {
+					yield return MIR.Comment($"Return data on stack (rsp+{retOffsetOnStack}), picking straight up");
+					// pick it back up
+					var flattened = Flatten(resultReg).ToArray();
+					int flattenedIdx = 0;
+					ulong offset = retOffsetOnStack;
+					foreach (var eb in classed.eightBytes) {
+						ulong internalOffset = 0;
+						foreach (var t in eb.fieldTypes) {
+							var r = flattened[flattenedIdx++];
+							var rName = allocContext.GetName(r);
+							if (rName == null) throw new Exception($"Register {r} not named");
+							yield return MIR.Comment($"Picking up {rName.Value.Item2} [{r}] from stack");
+							yield return MIR.MovIndirectRegister(rName.Value.Item2, BitSize(t), x86_64_Names.RSP, (long)(offset + internalOffset));
+							internalOffset += (ulong)(BitSize(t) / 8);
+						}
+						offset += 8;
+					}
+
+					yield return MIR.Comment($"Return data handled");
+				} break;
 			case SysV_Classes.INTEGER: {
 				if (retOnStack) {
-					throw new Exception("stack-passing");
+					yield return MIR.Comment($"Return data on stack (rsp+{retOffsetOnStack}), picking straight up");
+					// pick it back up
+					var flattened = Flatten(resultReg).ToArray();
+					int flattenedIdx = 0;
+					ulong offset = retOffsetOnStack;
+					foreach (var eb in classed.eightBytes) {
+						ulong internalOffset = 0;
+						foreach (var t in eb.fieldTypes) {
+							var r = flattened[flattenedIdx++];
+							var rName = allocContext.GetName(r);
+							if (rName == null) throw new Exception($"Register {r} not named");
+							yield return MIR.Comment($"Picking up {rName.Value.Item2} [{r}] from stack");
+							yield return MIR.MovIndirectRegister(rName.Value.Item2, BitSize(t), x86_64_Names.RSP, (long)(offset + internalOffset));
+							internalOffset += (ulong)(BitSize(t) / 8);
+						}
+						offset += 8;
+					}
+
+					yield return MIR.Comment($"Return data handled");
 				} else {
 					yield return MIR.Comment($"Return data in registers, reserving a little bit of stack space for handling");
 					yield return MIR.SubInteger(x86_64_Names.RSP, 64, (ulong)classed.eightBytes.Length * 8);
@@ -904,9 +978,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 		var argTypes = ArgTypes((addrReg.Type as Apply)!);
 
-		(ulong stackPassSize, bool retOnStack) = GetRequiredStackPassSize(argTypes.ret, argTypes.args);
-
-		if (stackPassSize > 0) throw new Exception("I don't want to deal with stack-passing yet");
+		(ulong stackPassSize, bool retOnStack, ulong stackRetSize) = GetRequiredStackPassSize(argTypes.ret, argTypes.args);
 
 		ulong stackSpillSize = GetRequiredStackSpillSize(argTypes.args);
 		data.Add(MIR.Comment($"Required stack size: {stackPassSize} for argument passing, {stackSpillSize} for argument spilling, return value passed [{(retOnStack ? "in memory" : "in registers")}]"));
@@ -934,18 +1006,25 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		data.Add(MIR.Comment($"Moving call target into RBX"));
 		// move call-target into RBX
 		data.Add(MIR.MovRegister(x86_64_Names.RBX, 64, addrName.Value.Item2));
+		data.Add(MIR.PushRegister(x86_64_Names.RBX));
 
 		// time to pick up the spilled memory into argument registers
 		data.AddRange(PickupArguments(argTypes, retOnStack, stackSpillSize, instr, ctx, lowererContext, allocContext));
+		data.Add(MIR.PopRegister(x86_64_Names.RBX));
 
 		data.Add(MIR.Comment($"Cleaning up the spill-zone ({stackSpillSize} bytes)"));
 		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		if (retOnStack) {
+			data.Add(MIR.Comment($"Telling function where to put result value"));
+			data.Add(MIR.LEA(x86_64_Names.RDI, 64, x86_64_Names.RSP, (long)(stackPassSize - stackRetSize)));
+		}
 
 		data.Add(MIR.Comment($"Actual call"));
 		data.Add(MIR.CallRegister(x86_64_Names.RBX));
 
 		// let's collect the result to our target register(s)
-		data.AddRange(CollectReturnValue(argTypes, instr[0]!, retOnStack, ctx, lowererContext, allocContext));
+		data.AddRange(CollectReturnValue(argTypes, instr[0]!, retOnStack, stackPassSize - stackRetSize, ctx, lowererContext, allocContext));
 
 		// clear pass space
 		data.Add(MIR.Comment($"Cleaning up the pass-zone ({stackPassSize} bytes)"));
@@ -971,14 +1050,14 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		}
 	}
 
-	private IEnumerable<MIR> SpillEntryParameters(bool retOnStack, (Typ ret, IEnumerable<Typ> args) argTypes, IrInstr instr, Context ctx,
+	private IEnumerable<MIR> SpillEntryParameters(bool retOnStack, ulong spillSize, (Typ ret, IEnumerable<Typ> args) argTypes, IrInstr instr, Context ctx,
 			VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
 	{
 		int intArgRegsIdx = retOnStack ? 1 : 0;
 
 		var paramRegs = instr.Params.Skip(1);
-		ulong srcOffset = 0;
-		ulong dstOffset = 0;
+		ulong srcOffset = 24 + spillSize + (retOnStack ? 8ul : 0ul);
+		ulong dstOffset = 8ul;
 		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
 			var classed = SysV_Classify(type);
 			int eightBytesIn = 0;
@@ -989,9 +1068,18 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							yield return MIR.Comment($"Spilling INTEGER argument eight-byte from {INT_ARG_REGS[intArgRegsIdx]}");
 							yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, INT_ARG_REGS[intArgRegsIdx++], (long)dstOffset);
 						} else {
-							throw new Exception("stack-passing");
+							yield return MIR.Comment($"spilling INTEGER argument eight-byte into stack-spill-space");
+							yield return MIR.MovIndirectRegister(x86_64_Names.RBX, 64, x86_64_Names.RSP, (long)srcOffset);
+							yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, x86_64_Names.RBX, (long)dstOffset);
+							srcOffset += 8;
 						}
 						break;
+					case SysV_Classes.MEMORY: {
+							yield return MIR.Comment($"spilling MEMORY argument eight-byte into stack-spill-space");
+							yield return MIR.MovIndirectRegister(x86_64_Names.RBX, 64, x86_64_Names.RSP, (long)srcOffset);
+							yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, x86_64_Names.RBX, (long)dstOffset);
+							srcOffset += 8;
+						} break;
 					default:
 						throw new Exception($"PickupArguments({classed})");
 				}
@@ -1035,14 +1123,19 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		var argTypes = ArgTypes(((instr[0] as IrParam.IrType)!.Type as Apply)!);
 		Console.WriteLine(argTypes.Item2.Count());
 
-		(_, bool retOnStack) = GetRequiredStackPassSize(argTypes.ret, argTypes.args);
+		(_, bool retOnStack, _) = GetRequiredStackPassSize(argTypes.ret, argTypes.args);
+
+		data.Add(MIR.Comment($"Reserving room for return-pointer"));
+		data.Add(MIR.PushRegister(x86_64_Names.RDI));
 
 		ulong stackSpillSize = GetRequiredStackSpillSize(argTypes.args);
 		data.Add(MIR.Comment($"Reserving {stackSpillSize} bytes on stack..."));
 		data.Add(MIR.SubInteger(x86_64_Names.RSP, 64, stackSpillSize));
 
 		data.Add(MIR.Comment($"Spilling arguments onto stack..."));
-		data.AddRange(SpillEntryParameters(retOnStack, argTypes, instr, ctx, lowererContext, allocContext));
+		data.Add(MIR.PushRegister(x86_64_Names.RBX));
+		data.AddRange(SpillEntryParameters(retOnStack, stackSpillSize, argTypes, instr, ctx, lowererContext, allocContext));
+		data.Add(MIR.PopRegister(x86_64_Names.RBX));
 
 		data.Add(MIR.Comment($"Picking up arguments from stack..."));
 		data.AddRange(PickupEntryParameters(argTypes, instr, ctx, lowererContext, allocContext));
@@ -1082,6 +1175,11 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	{
 		int intRetRegsIdx = 0;
 
+		if (retOnStack) {
+			yield return MIR.Comment($"Picking up return-pointer");
+			yield return MIR.MovIndirectRegister(x86_64_Names.RAX, 64, x86_64_Names.RBP, -8);
+		}
+
 		var reg = instr[0];
 		ulong srcOffset = 0;
 		ulong dstOffset = 0;
@@ -1089,16 +1187,25 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		int eightBytesIn = 0;
 		foreach (var eb in classed.eightBytes) {
 			switch (classed.Item1) {
+				case SysV_Classes.MEMORY:
+						yield return MIR.Comment($"Picking up INTEGER return value eight-byte into target pointer");
+						yield return MIR.MovIndirectRegister(x86_64_Names.RDX, 64, x86_64_Names.RSP, (long)srcOffset);
+						yield return MIR.MovRegisterIndirect(x86_64_Names.RAX, 64, x86_64_Names.RDX, (long)dstOffset);
+						dstOffset += 8;
+					break;
 				case SysV_Classes.INTEGER:
 					if (retOnStack) {
-						throw new Exception("stack-passing");
+						yield return MIR.Comment($"Picking up INTEGER return value eight-byte into target pointer");
+						yield return MIR.MovIndirectRegister(x86_64_Names.RDX, 64, x86_64_Names.RSP, (long)srcOffset);
+						yield return MIR.MovRegisterIndirect(x86_64_Names.RAX, 64, x86_64_Names.RDX, (long)dstOffset);
+						dstOffset += 8;
 					} else {
 						yield return MIR.Comment($"Picking up INTEGER return value eight-byte into {INT_RET_REGS[intRetRegsIdx]}");
 						yield return MIR.MovIndirectRegister(INT_RET_REGS[intRetRegsIdx++], 64, x86_64_Names.RSP, (long)srcOffset);
 					}
 					break;
 				default:
-					throw new Exception($"PickupArguments({classed})");
+					throw new Exception($"PickupReturnRegisters({classed})");
 			}
 			eightBytesIn++;
 			srcOffset += 8;
@@ -1478,6 +1585,14 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			reg1Val = src,
 		};
 
+		public static MIR LEA(x86_64_Names dest, int bitCount, x86_64_Names src, long offset) => new() {
+			kind = Kind.LEA,
+			reg0Val = dest,
+			int0Val = (ulong)bitCount,
+			reg1Val = src,
+			int1Val = (ulong)offset,
+		};
+
 		public static MIR MovRegisterIndirect(x86_64_Names dest, int bitCount, x86_64_Names src, long offset) => new() {
 			kind = Kind.MovRegisterIndirect,
 			reg0Val = dest,
@@ -1582,8 +1697,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		public enum Kind {
 			Label,
 			Comment,
-
 			Preamble,
+
 			MovInteger,
 			CmoveInteger,
 			MovRegister,
@@ -1593,6 +1708,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 			SetNE,
 
+			LEA,
 			Jump,
 			JumpE,
 			JumpNE,

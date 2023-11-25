@@ -158,11 +158,9 @@ public static class IrPrinter {
 			case IrKind.CreateTuple:
 				PrettyPrint(builder, instr[0]!);
 				builder.Append(" <- (");
-				for (int i = 1; i < instr.Params.Length; i += 2) {
+				for (int i = 1; i < instr.Params.Length; i++) {
 					builder.Append(i == 1 ? "" : ", ");
 					PrettyPrint(builder, instr[i]!);
-					builder.Append(": ");
-					PrettyPrint(builder, instr[i+1]!);
 				}
 				builder.Append(")\n");
 				break;
