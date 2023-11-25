@@ -1229,17 +1229,6 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 		data.Add(MIR.Return);
 		return data;
-		throw new Exception("TODO!");
-					var reg = (instr[0] as IrParam.Register)!;
-					var regName = allocContext.GetName(reg);
-					if (regName == null) throw new Exception($"Register {instr[0]} not named");
-					var (regClass, src) = regName.Value;
-					data.Add(MIR.MovRegister(x86_64_Names.RAX, BitSize(reg.Type), src));
-					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
-						data.Add(MIR.Comment($"Restore: {pair.Item2}"));
-						data.Add(MIR.PopRegister(pair.Item2));
-					}
-					data.Add(MIR.Return);
 	}
 
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
