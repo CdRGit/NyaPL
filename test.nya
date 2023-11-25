@@ -1,5 +1,5 @@
 fn [exit] main(): i32 {
-	exit(0);
+	exit(40);
 	let (a, _, _, _, _, _) = big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
 	return a;
 }
@@ -17,6 +17,7 @@ fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_v
 
 fn [exit] exit(error_code: i32): () {
 	unsafe [exit] {
-		intrinsic:syscall(60, error_code, 0, 0, 0, 0, 0);
+		let fuckingHellIJustWantToExit = intrinsic:syscall(60, error_code, 0, 0, 0, 0, 0);
 	}
+	return ();
 }

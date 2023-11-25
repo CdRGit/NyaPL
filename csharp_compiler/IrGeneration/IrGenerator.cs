@@ -87,7 +87,7 @@ public class IrGenerator {
 					return block;
 				}
 			case IntrinsicCallNode call: {
-					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name);
+					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name, call.BaseExpr.Type!);
 					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);
@@ -96,10 +96,8 @@ public class IrGenerator {
 
 					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
 
-					var pure = !fType.Effects.Any();
-
 					block.AddInstr(new(
-						pure ? IrKind.Call : IrKind.CallImpure,
+						IrKind.IntrinsicImpure,
 						new IrParam[] { ctx.GetNewRegister(call.Type!), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
@@ -323,7 +321,7 @@ public class IrGenerator {
 					return block;
 				}
 			case IntrinsicStandaloneCallNode call: {
-					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name);
+					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name, call.BaseExpr.Type!);
 					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);

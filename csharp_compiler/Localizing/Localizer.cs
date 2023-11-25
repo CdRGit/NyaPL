@@ -36,6 +36,8 @@ public class Localizer {
 	public static readonly Platform linux_x86_64 = new() {
 		Tags = new[] {"linux", "x86_64"},
 		Intrinsics = new() {
+			{ "syscall", new Apply(new Function(new Effect[0].ToList().AsReadOnly(), true),
+				Enumerable.Repeat(TypeChecker.i32, 8).ToList().AsReadOnly()) }
 		},
 		CodeGenerator = new CodeGenLinux_x86_64(),
 	};

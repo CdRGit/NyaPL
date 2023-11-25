@@ -119,10 +119,12 @@ public abstract class IrParam {
 	}
 	public class Intrinsic : IrParam {
 		public string Name { get; }
-		public Intrinsic(string name) {
+		public Typ Type { get; }
+		public Intrinsic(string name, Typ type) {
 			Name = name;
+			Type = type;
 		}
-		public override string ToString() => $"Intrinsic({Name})";
+		public override string ToString() => $"Intrinsic({Name}, {Type})";
 	}
 	public class Function : IrParam {
 		public string Name { get; }

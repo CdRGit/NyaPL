@@ -225,10 +225,12 @@ public static class IrPrinter {
 				break;
 			case IrParam.CompositeRegister c:
 				builder.Append("composite[");
-				PrettyPrint(builder, c.Registers[0]);
-				foreach (var r in c.Registers.Skip(1)) {
-					builder.Append(", ");
-					PrettyPrint(builder, r);
+				if (c.Registers.Count > 0) {
+					PrettyPrint(builder, c.Registers[0]);
+					foreach (var r in c.Registers.Skip(1)) {
+						builder.Append(", ");
+						PrettyPrint(builder, r);
+					}
 				}
 				builder.Append("]");
 				break;

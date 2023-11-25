@@ -136,6 +136,14 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
 			}
+			case IrKind.CallImpure: {
+				yield return ctx.ReplaceWithCompositeRegisters(instr);
+				yield break;
+			}
+			case IrKind.IntrinsicImpure: {
+				yield return ctx.ReplaceWithCompositeRegisters(instr);
+				yield break;
+			}
 			case IrKind.Return: {
 				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
@@ -347,6 +355,9 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					asmWriter.WriteLine("    mov rsp, rbp");
 					asmWriter.WriteLine("    pop rbp");
 					asmWriter.WriteLine("    ret");
+				} break;
+				case MIR.Kind.Syscall: {
+					asmWriter.WriteLine($"    syscall");
 				} break;
 				case MIR.Kind.PushRegister: {
 					var regName = GetRegName(instr.reg0Val, 64);
@@ -587,7 +598,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		if (classes.Any(c => c == SysV_Classes.MEMORY)) return SysV_Classes.MEMORY;
 		// x87 stuff, we do not care
 		// sse, we do not care
-		return classes[0];
+		return vals.Length == 0 ? SysV_Classes.MEMORY : classes[0];
 	}
 
 	private (int, int) ByteData(Typ type) {
@@ -721,7 +732,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return val + (align - (val % align));
 	}
 
-	private (ulong size, bool retOnStack, ulong retSize) GetRequiredStackPassSize(Typ returnType, IEnumerable<Typ> args) {
+	private (ulong size, bool retOnStack, ulong retSize) GetRequiredStackPassSize(Typ returnType, IEnumerable<Typ> args, bool syscall = false) {
 		// get the required size for the return type on-stack
 		var retClass = SysV_Classify(returnType);
 
@@ -747,7 +758,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		returnSize = Align(returnSize, 8);
 		// got it, we also now know if we're passing the return value on-stack or in register
 		// 5 registers if we're returning on stack because a `(int, int) -> memory` effectively gets rewritten to a `(memory*, int, int) -> memory*`
-		ulong availableIntegerRegisters = retOnStack ? 5ul : 6ul;
+		ulong availableIntegerRegisters = syscall ? 7ul : (retOnStack ? 5ul : 6ul);
 
 		// get the required size for the arguments on-stack
 		var argClasses = args.Select(a => SysV_Classify(a));
@@ -1081,7 +1092,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							srcOffset += 8;
 						} break;
 					default:
-						throw new Exception($"PickupArguments({classed})");
+						throw new Exception($"SpillEntryParameters({classed})");
 				}
 				eightBytesIn++;
 				dstOffset += 8;
@@ -1231,6 +1242,97 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return data;
 	}
 
+	static readonly x86_64_Names[] SYSCALL_REGS = {x86_64_Names.RAX, x86_64_Names.RDI, x86_64_Names.RSI, x86_64_Names.RDX, x86_64_Names.R10, x86_64_Names.R8, x86_64_Names.R9};
+	private IEnumerable<MIR> PickupSysArguments(
+			(Typ ret, IEnumerable<Typ> args) argTypes, IrInstr instr,
+			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
+	{
+		var paramRegs = instr.Params.Skip(2);
+		ulong srcOffset = 0;
+		int idx = 0;
+		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
+			var classed = SysV_Classify(type);
+			if (classed.eightBytes.Length > 1) throw new Exception("why are we passing in a non-eightbyte to a syscall");
+			if (classed.Item1 != SysV_Classes.INTEGER) throw new Exception("why are we passing in a non-INTEGER to a syscall");
+
+			if (idx < SYSCALL_REGS.Length) {
+				yield return MIR.Comment($"Picking up INTEGER argument eight-byte into {SYSCALL_REGS[idx]}");
+				yield return MIR.MovIndirectRegister(SYSCALL_REGS[idx++], 64, x86_64_Names.RSP, (long)srcOffset);
+			} else {
+				throw new Exception("too many arguments for syscall");
+			}
+			srcOffset += 8;
+		}
+	}
+
+	private IEnumerable<MIR> GenerateSyscall(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
+		List<MIR> data = new();
+
+		var addrReg = (instr[1] as IrParam.Intrinsic)!;
+
+		var argRegs = instr.Params.Skip(2);
+
+		var argTypes = ArgTypes((addrReg.Type as Apply)!);
+
+		(ulong stackPassSize, bool retOnStack, ulong stackRetSize) = GetRequiredStackPassSize(argTypes.ret, argTypes.args, syscall: true);
+
+		if (stackPassSize > 0 || retOnStack) throw new Exception("why the fuck is a syscall trying to use the stack");
+
+		ulong stackSpillSize = GetRequiredStackSpillSize(argTypes.args);
+		data.Add(MIR.Comment($"Required stack size {stackSpillSize} for argument spilling"));
+
+		var regsUsedByReturn = GetRegsUsedForReturn(instr, ctx, lowererContext, allocContext);
+		if (regsUsedByReturn.Count() > 1) throw new Exception("why the fuck is a syscall trying to return more than a 64-bit-integer");
+		var regsToPreserve = allocContext.Names.Values.Select(pair => pair.Item2)
+			.Where(name => SYSCALL_REGS.Contains(name))
+			.Where(name => !regsUsedByReturn.Contains(name));
+
+		foreach (var retReg in regsUsedByReturn) {
+			data.Add(MIR.Comment($"{retReg} is used by return, and therefore not preserved"));
+		}
+		foreach (var reg in regsToPreserve) {
+			data.Add(MIR.Comment($"Preserving {reg}..."));
+			data.Add(MIR.PushRegister(reg));
+		}
+		data.Add(MIR.Comment($"Reserving {stackSpillSize} bytes on stack..."));
+		data.Add(MIR.SubInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		// spilling registers into the spill-space
+		data.AddRange(SpillRegisters(argTypes, instr, ctx, lowererContext, allocContext));
+
+		// time to pick up the spilled memory into argument registers
+		data.AddRange(PickupSysArguments(argTypes, instr, ctx, lowererContext, allocContext));
+
+		data.Add(MIR.Comment($"Cleaning up the spill-zone ({stackSpillSize} bytes)"));
+		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		data.Add(MIR.Comment($"Actual syscall"));
+		data.Add(MIR.Syscall());
+
+		// let's collect the result to our target register(s)
+		data.AddRange(CollectReturnValue(argTypes, instr[0]!, retOnStack, stackPassSize - stackRetSize, ctx, lowererContext, allocContext));
+
+		// pick back up the registers
+		foreach (var reg in regsToPreserve.Reverse()) {
+			data.Add(MIR.Comment($"Restoring {reg}..."));
+			data.Add(MIR.PopRegister(reg));
+		}
+
+		return data;
+	}
+
+	private IEnumerable<MIR> GenerateIntrinsic(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
+		var intrinsic = (instr[1] as IrParam.Intrinsic)!;
+		switch (intrinsic.Name) {
+			case "syscall":
+				return GenerateSyscall(instr, ctx, lowererContext, allocContext);
+			default:
+				throw new Exception($"Unknown intrinsic: '{intrinsic.Name}'");
+		}
+		Console.WriteLine(intrinsic.Name);
+		throw new Exception("TODO!");
+	}
+
 	private ReadOnlyCollection<MIR> GetMIR(IrBlock block, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		if (ctx.Visited(block)) return new List<MIR>().AsReadOnly();
 		ctx.Visit(block);
@@ -1240,6 +1342,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			data.Add(MIR.Comment($"{instr}"));
 			switch (instr.Kind) {
 				case IrKind.Call:
+				case IrKind.CallImpure:
 					data.AddRange(GenerateCall(instr, ctx, lowererContext, allocContext));
 					break;
 				case IrKind.LoadArguments:
@@ -1247,6 +1350,9 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					break;
 				case IrKind.Return:
 					data.AddRange(GenerateReturn(instr, ctx, lowererContext, allocContext));
+					break;
+				case IrKind.IntrinsicImpure:
+					data.AddRange(GenerateIntrinsic(instr, ctx, lowererContext, allocContext));
 					break;
 
 				// handled in branches
@@ -1534,6 +1640,10 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			reg0Val = tgt,
 		};
 
+		public static MIR Syscall() => new() {
+			kind = Kind.Syscall,
+		};
+
 		public static MIR Return => new() {
 			kind = Kind.Return,
 		};
@@ -1722,6 +1832,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 
 			CallRegister,
 			Return,
+			Syscall,
 		}
 
 		public x86_64_Names reg0Val;
