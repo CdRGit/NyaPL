@@ -12,7 +12,7 @@ public class Intrinsic : Typ {
 
 public enum IntrinsicType {
 	// unsigned integers
-	
+
 	// signed integers
 	I32,
 	// other

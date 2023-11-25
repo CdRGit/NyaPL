@@ -414,7 +414,9 @@ public class TypeChecker {
 
 		var body = shallowPass ? function.Body : new AstListNode<StatementNode>(function.Body.Location, function.Body.Select(s => Check(ctx, s)).ToList().AsReadOnly());
 
-		var func = shallowPass ? function : Zonk<FunctionNode>(ctx, new(function.Location, fullName, sideEffects, parameters, returnType, body));
+		Typ fnType = new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly(), false), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly());
+
+		var func = shallowPass ? function : Zonk<FunctionNode>(ctx, new(function.Location, fullName, sideEffects, parameters, returnType, body, fnType));
 
 		if (topLevel) {
 			if (!shallowPass) {
@@ -430,8 +432,9 @@ public class TypeChecker {
 
 		ctx.EndVariableScope();
 
+
 		if (!topLevel || shallowPass)
-			if (!ctx.DeclareVar(function.Name, new Apply(new Function(sideEffects.Select(e => e.Effect!).ToList().AsReadOnly(), false), new Typ[] {returnType.Type!}.Concat(parameters.Select(p => p.Type.Type!)).ToList().AsReadOnly()), mutable: false, isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
+			if (!ctx.DeclareVar(function.Name, fnType, mutable: false, isFunc: true, fullName)) throw new TypeError(function.Location, $"Variable {function.Name} already declared");
 
 		if (!topLevel) {
 			ctx.AddNestedFunction(func);
@@ -791,6 +794,7 @@ public class TypeChecker {
 
 		public void PrintGlobals() => Console.WriteLine("Globals:\n" + variables);
 
+		/*
 		public ushort GetSize(Typ type) {
 			if (type is Intrinsic i) {
 				switch (i.Type) {
@@ -818,5 +822,6 @@ public class TypeChecker {
 			}
 			throw new Exception($"Cannot get size for type: {type.GetType().Name}");
 		}
+		*/
 	}
 }

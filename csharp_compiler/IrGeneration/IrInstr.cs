@@ -1,4 +1,6 @@
 using System.Linq;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 using Nyapl.Typing.Types;
 
@@ -38,9 +40,19 @@ public enum IrKind {
 
 	Intrinsic,
 	IntrinsicImpure,
+
+	MachineSpecific,
 }
 
 public abstract class IrParam {
+	public class MachineSpecific<T> : IrParam {
+		public T Value { get; }
+		public MachineSpecific(T t) {
+			Value = t;
+		}
+		public override string ToString() => $"MachineSpecific({Value})";
+	}
+
 	public class Local : IrParam {
 		public string Name { get; }
 		public Typ Type { get; }
@@ -50,6 +62,13 @@ public abstract class IrParam {
 		}
 		public override string ToString() => $"Local({Type}, {Name})";
 	}
+	public class IrType : IrParam {
+		public Typ Type { get; }
+		public IrType(Typ type) {
+			Type = type;
+		}
+		public override string ToString() => $"IrType({Type})";
+	}
 	public class Register : IrParam {
 		public Typ Type { get; }
 		public uint Index { get; }
@@ -58,6 +77,15 @@ public abstract class IrParam {
 			Index = index;
 		}
 		public override string ToString() => $"Register({Type}, {Index})";
+	}
+	public class CompositeRegister : IrParam {
+		public Typ Type { get; }
+		public ReadOnlyCollection<Register> Registers { get; }
+		public CompositeRegister(IEnumerable<Register> registers, Typ type) {
+			Registers = registers.ToList().AsReadOnly();
+			Type = type;
+		}
+		public override string ToString() => $"CompositeRegister([{string.Join(", ", Registers)}])";
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }
@@ -82,31 +110,35 @@ public abstract class IrParam {
 	}
 	public class Int : IrParam {
 		public ulong Value { get; }
-		public Int(ulong value) {
+		public int Bits { get; }
+		public Int(ulong value, int bits) {
 			Value = value;
+			Bits = bits;
 		}
-		public override string ToString() => $"Int({Value})";
+		public override string ToString() => $"Int{Bits}({Value})";
 	}
 	public class Intrinsic : IrParam {
-		public ulong Index { get; }
-		public Intrinsic(ulong index) {
-			Index = index;
+		public string Name { get; }
+		public Typ Type { get; }
+		public Intrinsic(string name, Typ type) {
+			Name = name;
+			Type = type;
 		}
-		public override string ToString() => $"Intrinsic({Index})";
+		public override string ToString() => $"Intrinsic({Name}, {Type})";
 	}
 	public class Function : IrParam {
-		public ulong Index { get; }
-		public Function(ulong index) {
-			Index = index;
+		public string Name { get; }
+		public Function(string name) {
+			Name = name;
 		}
-		public override string ToString() => $"Function({Index})";
+		public override string ToString() => $"Function({Name})";
 	}
 	public class Block : IrParam {
 		public IrBlock Blk { get; }
 		public Block(IrBlock blk) {
 			Blk = blk;
 		}
-		public override string ToString() => $"Block({Blk})";
+		public override string ToString() => $"Block({Blk.ID})";
 	}
 	public class IntrinsicOp : IrParam {
 		public IrOpKind Kind { get; }

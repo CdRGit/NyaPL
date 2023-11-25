@@ -237,7 +237,9 @@ public class Mem2Reg {
 		ctx.MarkTransformed(node);
 
 		foreach (var connection in node.Outgoing) {
+			ctx.PushLocals();
 			replacement.AddConnection(Transform(ctx, connection.node, propagatedVariables, phiFunctions), connection.label);
+			ctx.PopLocals();
 		}
 
 
@@ -293,6 +295,20 @@ public class Mem2Reg {
 	private class Context {
 		public Context(uint usedRegisters) {
 			UsedRegisters = usedRegisters;
+		}
+
+		private Stack<Dictionary<string, IrParam.Register>> localStack = new();
+
+		public void PushLocals() {
+			localStack.Push(locals);
+			locals = new();
+			foreach (var pair in localStack.Peek()) {
+				locals[pair.Key] = pair.Value;
+			}
+		}
+
+		public void PopLocals() {
+			locals = localStack.Pop();
 		}
 
 		private Dictionary<string, IrParam.Register> locals = new();

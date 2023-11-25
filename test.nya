@@ -1,39 +1,23 @@
-platform {
-	[simulator] {
-		fn [stdio] write_num(value: i32): () {
-			unsafe [stdio] {
-				intrinsic:write_num(value);
-			}
-			return ();
-		}
-	}
-}
-
-fn fib(idx: i32): i32 {
-	if idx == 0 { return 1; }
-	if idx == 1 { return 1; }
-
-	return fib(idx - 1) + fib(idx - 2);
-}
-
-fn fib_iter(idx: i32): i32 {
-	let mut (a, b) = (1, 1);
-	let mut i = 0;
-	while (i != idx) {
-		(a, b) = (b, a + b);
-		i = i + 1;
-	}
+fn [exit] main(): i32 {
+	exit(40);
+	let (a, _, _, _, _, _) = big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
 	return a;
 }
 
-fn [stdio] main(): i32 {
-	fn nested(): i32 {
-		return 30;
+fn add_two(val: i32): i32 {
+	return val + 2;
+}
+
+typedef func = fn (i32): i32;
+
+fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_val: i32): (i32, func, func, func, func, func) {
+	let (a, b, c, d, e) = lot_of_functions;
+	return (a(b(c(d(e(in_val))))), a, b, c, d, e);
+}
+
+fn [exit] exit(error_code: i32): () {
+	unsafe [exit] {
+		let fuckingHellIJustWantToExit = intrinsic:syscall(60, error_code, 0, 0, 0, 0, 0);
 	}
-	let mut a = 0;
-	while (a != nested()) {
-		write_num(fib_iter(a));
-		a = a + 1;
-	}
-	return 0;
+	return ();
 }

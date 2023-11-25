@@ -39,7 +39,8 @@ public class IrGenerator {
 					block.AddInstr(new(
 						IrKind.Copy,
 						ctx.GetNewRegister(integer.Type!),
-						new IrParam.Int(integer.Value)
+						// TODO: properly work with more-than-just-32-bit-integers
+						new IrParam.Int(integer.Value, 32)
 					));
 					return block;
 				}
@@ -54,7 +55,7 @@ public class IrGenerator {
 						block.AddInstr(new(
 							IrKind.LoadFunction,
 							ctx.GetNewRegister(lookup.Type!),
-							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
+							new IrParam.Function(lookup.Name)
 						));
 					} else {
 						// variable found
@@ -86,8 +87,7 @@ public class IrGenerator {
 					return block;
 				}
 			case IntrinsicCallNode call: {
-					var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), call.BaseExpr.Name);
-					var baseIntrin = new IrParam.Intrinsic((ulong)index);
+					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name, call.BaseExpr.Type!);
 					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);
@@ -96,16 +96,13 @@ public class IrGenerator {
 
 					var fType = ((call.BaseExpr.Type! as Apply)!.BaseType as Function)!;
 
-					var pure = !fType.Effects.Any();
-
 					block.AddInstr(new(
-						pure ? IrKind.Call : IrKind.CallImpure,
+						IrKind.IntrinsicImpure,
 						new IrParam[] { ctx.GetNewRegister(call.Type!), baseIntrin }.Concat(argRegs).ToArray()
 					));
 					return block;
 				}
 			case BinOpNode bin: {
-					var size = ctx.TypeCtx.GetSize(bin.Type!);
 					block = Generate(block, ctx, bin.LExpr);
 					var leftReg = ctx.GetPreviousRegister();
 					block = Generate(block, ctx, bin.RExpr);
@@ -120,7 +117,6 @@ public class IrGenerator {
 					return block;
 				}
 			case UnOpNode un: {
-					var size = ctx.TypeCtx.GetSize(un.Type!);
 					block = Generate(block, ctx, un.Expr);
 					var reg = ctx.GetPreviousRegister();
 					block.AddInstr(new(
@@ -147,7 +143,7 @@ public class IrGenerator {
 						block.AddInstr(new(
 							IrKind.LoadFunction,
 							ctx.GetNewRegister(lookup.Type!),
-							new IrParam.Function((ulong)ctx.GetFunction(lookup.Name))
+							new IrParam.Function(lookup.Name)
 						));
 					} else {
 						// variable found
@@ -325,8 +321,7 @@ public class IrGenerator {
 					return block;
 				}
 			case IntrinsicStandaloneCallNode call: {
-					var index = Array.IndexOf(ctx.Platform.Intrinsics.Keys.ToArray(), call.BaseExpr.Name);
-					var baseIntrin = new IrParam.Intrinsic((ulong)index);
+					var baseIntrin = new IrParam.Intrinsic(call.BaseExpr.Name, call.BaseExpr.Type!);
 					var argRegs = new IrParam.Register[call.Arguments.Children.Count];
 					for (var i = 0; i < call.Arguments.Children.Count; i++) {
 						block = Generate(block, ctx, call.Arguments.Children[i]);
@@ -417,9 +412,12 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
 		// move arguments to registers
 		var argList = function.Parameters.Select(p => ctx.GetNewRegister(p.Type.Type!)).ToArray();
+		var argListFinal = new List<IrParam>();
+		argListFinal.Add(new IrParam.IrType(function.Type));
+		argListFinal.AddRange(argList);
 		block.AddInstr(new(
 			IrKind.LoadArguments,
-			argList
+			argListFinal.ToArray()
 		));
 		for (int i = 0; i < function.Parameters.Children.Count; i++) {
 			var param = function.Parameters.Children[i];

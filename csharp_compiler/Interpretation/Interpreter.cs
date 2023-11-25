@@ -10,14 +10,14 @@ using Nyapl.IrGeneration;
 using Nyapl.Localizing;
 
 public class Interpreter {
-	private Value GetValueFromParam(Dictionary<uint, Value> registers, ReadOnlyDictionary<string, IrBlock> functions, IrParam param) {
+	private Value GetValueFromParam(Dictionary<uint, Value> registers, IrParam param) {
 		switch (param) {
 			case IrParam.Int i:
 				return new Value.Integer(i.Value);
 			case IrParam.Register r:
 				return registers[r.Index];
 			case IrParam.Function f:
-				return new Value.Function(functions.Keys.Skip((int)f.Index).First());
+				return new Value.Function(f.Name);
 			default:
 				throw new Exception($"Can't find value of '{param}' yet");
 		}
