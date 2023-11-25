@@ -221,6 +221,10 @@ public static class IrPrinter {
 			case IrParam.Bool b:
 				builder.Append($"{b.Value}");
 				break;
+			case IrParam.IrType t:
+				builder.Append($":");
+				PrettyPrint(builder, t.Type);
+				break;
 			case IrParam.CompositeRegister c:
 				builder.Append("composite[");
 				PrettyPrint(builder, c.Registers[0]);

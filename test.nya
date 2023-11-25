@@ -1,5 +1,5 @@
 fn main(): i32 {
-	return apply_tuple((13, fib_iter));
+	return apply_tuple((12, fib_iter));
 }
 
 fn fib_iter(idx: i32): i32 {

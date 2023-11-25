@@ -95,8 +95,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 									}
 									// it's suffering time
 									// loop through all argument types and map those into their relevant types
-									var args = a.ParameterTypes.SelectMany(t => Flatten(MakeRegister(t, null)));
-									var curr_col = Console.ForegroundColor;
+									var args = a.ParameterTypes.SelectMany(t => Flatten(MakeRegister(t, null))).ToArray();
 									if (register != null) {
 										SetTuple(register, args);
 									}
@@ -131,13 +130,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 	private IEnumerable<IrInstr> VerySimpleDumbRegisterLoweringAlgorithm(IrInstr instr, VSDRLA_Context ctx, Func<IrBlock, IrBlock> replace) {
 		switch (instr.Kind) {
 			case IrKind.LoadArguments:
-				if (instr.Params.Length != 0) {
-					// let's pretend there's no issue for now :)
-					// throw new Exception("VSDRLA for arguments has not been implemented yet, skill issue ♡");
-				}
 				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
 			case IrKind.Call: {
+				yield return ctx.ReplaceWithCompositeRegisters(instr);
+				yield break;
+			}
+			case IrKind.Return: {
 				yield return ctx.ReplaceWithCompositeRegisters(instr);
 				yield break;
 			}
@@ -151,26 +150,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 				var valReg = ctx.SimplifyRegister(baseReg).ToArray()[(instr[2] as IrParam.Offset)!.Value];
 				var destReg = ctx.ReplaceRegister((instr[0] as IrParam.Register)!);
 				yield return new(IrKind.Copy, destReg, valReg);
-				yield break;
-			}
-			case IrKind.Return: {
-				var dest = (instr[0] as IrParam.Register)!;
-				switch (dest.Type) {
-					case Intrinsic i: {
-							switch (i.Type) {
-								case IntrinsicType.I32:
-									yield return ctx.ReplaceRegisters(instr);
-									break;
-								case IntrinsicType.Bool:
-									yield return ctx.ReplaceRegisters(instr);
-									break;
-								default:
-									throw new Exception($"VSDRLA for intrinsic '{i.Type}' not implemented yet");
-							}
-						} break;
-					default:
-						throw new Exception($"VSDRLA for type '{dest.Type}' not implemented yet");
-				}
+				Console.WriteLine($"{baseReg.Index}[{(instr[2] as IrParam.Offset)!.Value}] -> {valReg}");
 				yield break;
 			}
 			case IrKind.LoadFunction:
@@ -253,7 +233,7 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			}
 		}
 		Process.Start("nasm", new[] {"-felf64", $"{filePath}.asm"}).WaitForExit();
-		Process.Start("ld", new[] {$"{filePath}.o"}).WaitForExit();
+		Process.Start("ld", new[] {$"{filePath}.o", "-o", $"{filePath}"}).WaitForExit();
 	}
 
 	private void WriteMIR(StreamWriter asmWriter, ReadOnlyCollection<MIR> machineIR) {
@@ -980,73 +960,168 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 		return data;
 	}
 
+	private Typ GetParamType(IrParam p) {
+		switch (p) {
+			case IrParam.CompositeRegister c:
+				return c.Type;
+			case IrParam.Register r:
+				return r.Type;
+			default:
+				throw new Exception($"TODO! GetParamType({p})");
+		}
+	}
+
+	private IEnumerable<MIR> SpillEntryParameters(bool retOnStack, (Typ ret, IEnumerable<Typ> args) argTypes, IrInstr instr, Context ctx,
+			VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
+	{
+		int intArgRegsIdx = retOnStack ? 1 : 0;
+
+		var paramRegs = instr.Params.Skip(1);
+		ulong srcOffset = 0;
+		ulong dstOffset = 0;
+		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
+			var classed = SysV_Classify(type);
+			int eightBytesIn = 0;
+			foreach (var eb in classed.eightBytes) {
+				switch (classed.Item1) {
+					case SysV_Classes.INTEGER:
+						if (intArgRegsIdx + classed.eightBytes.Length - eightBytesIn < INT_ARG_REGS.Length) {
+							yield return MIR.Comment($"Spilling INTEGER argument eight-byte from {INT_ARG_REGS[intArgRegsIdx]}");
+							yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, 64, INT_ARG_REGS[intArgRegsIdx++], (long)dstOffset);
+						} else {
+							throw new Exception("stack-passing");
+						}
+						break;
+					default:
+						throw new Exception($"PickupArguments({classed})");
+				}
+				eightBytesIn++;
+				dstOffset += 8;
+			}
+		}
+	}
+
+	private IEnumerable<MIR> PickupEntryParameters(
+			(Typ ret, IEnumerable<Typ> args) argTypes, IrInstr instr,
+			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
+	{
+		var paramRegs = instr.Params.Skip(1);
+		ulong offset = 0;
+		foreach (var (type, reg) in argTypes.args.Zip(paramRegs)) {
+			var classed = SysV_Classify(type);
+			var flattened = Flatten(reg).ToArray();
+			int flattenedIdx = 0;
+			foreach (var eb in classed.eightBytes) {
+				ulong internalOffset = 0;
+				foreach (var t in eb.fieldTypes) {
+					var r = flattened[flattenedIdx++];
+					var rName = allocContext.GetName(r);
+					if (rName == null) throw new Exception($"Register {r} not named");
+					yield return MIR.Comment($"Picking up {rName.Value.Item2} [{r}] from stack");
+					yield return MIR.MovIndirectRegister(rName.Value.Item2, BitSize(t), x86_64_Names.RSP, (long)(offset + internalOffset));
+					internalOffset += (ulong)(BitSize(t) / 8);
+				}
+				offset += 8;
+			}
+		}
+	}
+
 	private IEnumerable<MIR> GenerateLoadArguments(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		List<MIR> data = new();
-		throw new Exception("TODO!");
-					data.Add(MIR.Preamble());
-					if (instr.Params.Length != 0) {
-						// it's hell time
-						// SYS-V ABI HERE WE FUCKING COME BABYYYY
-						// let's classify the arguments
-						var arg_classes = instr.Params.Select(a => (a, SysV_Classify(a))).ToArray();
-						var registers_used = new Dictionary<SysV_Classes, int>();
-						var stack_args = new Stack<(IrParam, SysV_Classes)>();
-						var register_arguments = new Dictionary<IrParam, x86_64_Names>();
-						foreach (var arg in arg_classes) {
-							if (sysv_argument_registers.ContainsKey(arg.Item2)) {
-								if (!registers_used.ContainsKey(arg.Item2))
-									registers_used[arg.Item2] = 0;
-								var registers = sysv_argument_registers[arg.Item2];
-								var count = registers_used[arg.Item2];
-								if (count < registers.Length) {
-									register_arguments[arg.Item1] = registers[count];
-									registers_used[arg.Item2]++;
-								} else {
-									throw new Exception("stack spilling arguments not implemented yet");
-								}
-							} else {
-								throw new Exception("non-register arguments not implemented yet");
-							}
-						}
-						var overwritten_targets = new Dictionary<x86_64_Names, x86_64_Names>();
-						// if we need the target data somewhere we'll push, mov, pop into the then-free register
-						int offset = 0;
-						foreach (var r_arg in register_arguments.SelectMany<KeyValuePair<IrParam, x86_64_Names>, (IrParam Key, x86_64_Names Value)>(r => r.Key is IrParam.CompositeRegister c ? c.Registers.Select(k => (k as IrParam, r.Value)) : new[] {(r.Key as IrParam, r.Value)})) {
-							offset++;
-							var reg = (r_arg.Key as IrParam.Register)!;
-							var regName = allocContext.GetName(reg);
-							if (regName == null) throw new Exception($"Register {reg} not named");
-							var (regClass, src) = regName.Value;
-							var target = r_arg.Value;
+		data.Add(MIR.Preamble());
 
-							var collission = register_arguments.Skip(offset).Any((p) => {
-								var r = (p.Key as IrParam.Register)!;
-								var rName = allocContext.GetName(r);
-								if (rName == null) throw new Exception($"Register {r} not named");
-								return rName.Value.Item2 == target;
-							});
-							Console.WriteLine(collission);
-							if (collission)
-								throw new Exception("TODO!");
-							else {
-								if (overwritten_targets.ContainsKey(src)) {
-									throw new Exception("TODO!");
-								} else {
-									data.Add(MIR.Comment($"Load argument {src} <- {target}"));
-									data.Add(MIR.MovRegister(src, BitSize(reg.Type), target));
-								}
-							}
-						}
-						if (stack_args.Count != 0) throw new Exception("stack args are not ready yet");
+		var argRegs = instr.Params.Skip(1);
+
+		var argTypes = ArgTypes(((instr[0] as IrParam.IrType)!.Type as Apply)!);
+		Console.WriteLine(argTypes.Item2.Count());
+
+		(_, bool retOnStack) = GetRequiredStackPassSize(argTypes.ret, argTypes.args);
+
+		ulong stackSpillSize = GetRequiredStackSpillSize(argTypes.args);
+		data.Add(MIR.Comment($"Reserving {stackSpillSize} bytes on stack..."));
+		data.Add(MIR.SubInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		data.Add(MIR.Comment($"Spilling arguments onto stack..."));
+		data.AddRange(SpillEntryParameters(retOnStack, argTypes, instr, ctx, lowererContext, allocContext));
+
+		data.Add(MIR.Comment($"Picking up arguments from stack..."));
+		data.AddRange(PickupEntryParameters(argTypes, instr, ctx, lowererContext, allocContext));
+
+		data.Add(MIR.Comment($"Cleaning up {stackSpillSize} bytes"));
+		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		return data;
+	}
+
+	private IEnumerable<MIR> SpillReturnRegisters(
+			Typ type, IrInstr instr,
+			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
+	{
+		var reg = instr[0];
+		ulong offset = 0;
+		var classed = SysV_Classify(type);
+		var flattened = Flatten(reg).ToArray();
+		int flattenedIdx = 0;
+		foreach (var eb in classed.eightBytes) {
+			ulong internalOffset = 0;
+			foreach (var t in eb.fieldTypes) {
+				var r = flattened[flattenedIdx++];
+				var rName = allocContext.GetName(r);
+				if (rName == null) throw new Exception($"Register {r} not named");
+				yield return MIR.Comment($"Spilling {rName.Value.Item2} [{r}] onto stack");
+				yield return MIR.MovRegisterIndirect(x86_64_Names.RSP, BitSize(t), rName.Value.Item2, (long)(offset + internalOffset));
+				internalOffset += (ulong)(BitSize(t) / 8);
+			}
+			offset += 8;
+		}
+	}
+
+	private IEnumerable<MIR> PickupReturnRegisters(
+			Typ type, bool retOnStack, IrInstr instr,
+			Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext)
+	{
+		int intRetRegsIdx = 0;
+
+		var reg = instr[0];
+		ulong srcOffset = 0;
+		ulong dstOffset = 0;
+		var classed = SysV_Classify(type);
+		int eightBytesIn = 0;
+		foreach (var eb in classed.eightBytes) {
+			switch (classed.Item1) {
+				case SysV_Classes.INTEGER:
+					if (retOnStack) {
+						throw new Exception("stack-passing");
+					} else {
+						yield return MIR.Comment($"Picking up INTEGER return value eight-byte into {INT_RET_REGS[intRetRegsIdx]}");
+						yield return MIR.MovIndirectRegister(INT_RET_REGS[intRetRegsIdx++], 64, x86_64_Names.RSP, (long)srcOffset);
 					}
-					foreach (var pair in allocContext.Names.Values.Distinct().Where(pair => callee_preserved.Contains(pair.Item2))) {
-						data.Add(MIR.Comment($"Preserve: {pair.Item2}"));
-						data.Add(MIR.PushRegister(pair.Item2));
-					}
+					break;
+				default:
+					throw new Exception($"PickupArguments({classed})");
+			}
+			eightBytesIn++;
+			srcOffset += 8;
+		}
 	}
 
 	private IEnumerable<MIR> GenerateReturn(IrInstr instr, Context ctx, VSDRLA_Context lowererContext, RegisterAllocation.Context<x86_64_Classes, x86_64_Names> allocContext) {
 		List<MIR> data = new();
+		Typ type = GetParamType(instr[0]!);
+		var classed = SysV_Classify(type);
+		ulong stackSpillSize = (ulong)classed.eightBytes.Length * 8;
+
+		data.Add(MIR.Comment($"Reserving {stackSpillSize} bytes on stack..."));
+		data.Add(MIR.SubInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		data.AddRange(SpillReturnRegisters(type, instr, ctx, lowererContext, allocContext));
+		data.AddRange(PickupReturnRegisters(type, classed.eightBytes.Length > 2, instr, ctx, lowererContext, allocContext));
+
+		data.Add(MIR.Comment($"Clearing up {stackSpillSize} bytes"));
+		data.Add(MIR.AddInteger(x86_64_Names.RSP, 64, stackSpillSize));
+
+		data.Add(MIR.Return);
+		return data;
 		throw new Exception("TODO!");
 					var reg = (instr[0] as IrParam.Register)!;
 					var regName = allocContext.GetName(reg);

@@ -26,7 +26,7 @@ public class CopyPropagation {
 		foreach (var instr in source.Instructions) {
 			switch (instr.Kind) {
 				case IrKind.LoadArguments:
-					foreach (var param in instr.Params) {
+					foreach (var param in instr.Params.Skip(1)) {
 						var r = (param as IrParam.Register)!;
 						ctx.SetRegister(r, r);
 					}

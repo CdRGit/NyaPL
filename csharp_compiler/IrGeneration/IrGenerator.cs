@@ -414,9 +414,12 @@ public class IrGenerator {
 	private IrBlock Generate(IrBlock block, Context ctx, FunctionNode function) {
 		// move arguments to registers
 		var argList = function.Parameters.Select(p => ctx.GetNewRegister(p.Type.Type!)).ToArray();
+		var argListFinal = new List<IrParam>();
+		argListFinal.Add(new IrParam.IrType(function.Type));
+		argListFinal.AddRange(argList);
 		block.AddInstr(new(
 			IrKind.LoadArguments,
-			argList
+			argListFinal.ToArray()
 		));
 		for (int i = 0; i < function.Parameters.Children.Count; i++) {
 			var param = function.Parameters.Children[i];

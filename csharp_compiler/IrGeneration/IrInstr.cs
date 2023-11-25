@@ -62,6 +62,13 @@ public abstract class IrParam {
 		}
 		public override string ToString() => $"Local({Type}, {Name})";
 	}
+	public class IrType : IrParam {
+		public Typ Type { get; }
+		public IrType(Typ type) {
+			Type = type;
+		}
+		public override string ToString() => $"IrType({Type})";
+	}
 	public class Register : IrParam {
 		public Typ Type { get; }
 		public uint Index { get; }
@@ -78,7 +85,7 @@ public abstract class IrParam {
 			Registers = registers.ToList().AsReadOnly();
 			Type = type;
 		}
-		public override string ToString() => $"CompositeRegister({Type})";
+		public override string ToString() => $"CompositeRegister([{string.Join(", ", Registers)}])";
 	}
 	public class Count : IrParam {
 		public ulong Value { get; }
