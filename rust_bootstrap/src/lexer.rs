@@ -51,6 +51,11 @@ pub enum TokenKind {
 	EqEq,
 	BangEq,
 
+	And,
+	AndAnd,
+	Pipe,
+	PipePipe,
+
 	Assign,
 	Bang,
 
@@ -64,7 +69,7 @@ pub enum TokenKind {
 	Star,
 	Percent,
 
-	EOF,
+	Tilde,
 }
 
 #[derive(Debug)]
@@ -92,6 +97,23 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'/' => TokenKind::Slash,
 			'*' => TokenKind::Star,
 			'%' => TokenKind::Percent,
+			'~' => TokenKind::Tilde,
+			'&' => {
+				if let Some((_, '&')) = iter.peek() {
+					iter.next();
+					TokenKind::AndAnd
+				} else {
+					TokenKind::And
+				}
+			},
+			'|' => {
+				if let Some((_, '|')) = iter.peek() {
+					iter.next();
+					TokenKind::PipePipe
+				} else {
+					TokenKind::Pipe
+				}
+			},
 			'=' => {
 				if let Some((_, '=')) = iter.peek() {
 					iter.next();
@@ -158,6 +180,5 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			_ => return Err(LexError::UnexpectedChar(c, idx)),
 		}));
 	}
-	vec.push(Token::new(source_text.len(), TokenKind::EOF));
 	return Ok(vec.into());
 }

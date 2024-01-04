@@ -1,23 +1,43 @@
 fn [stdio] main(): i32 {
-	if foo() == 10 {
+	fn nested(): i32 {
 		return 5;
+	}
+	if foo() == 10 {
+		return nested();
 	} elif !true {
 		return 15;
 	} else {
-		return 200;
+		200
 	}
 }
 
 fn foo(): i32 {
-	return bar(10, 50);
+	if { true } {
+		apply(bar, 10, 50)
+	} else {
+		apply(bar, 10, 50)
+	}
+}
+
+fn apply(f: fn (i32, i32): i32, l: i32, r: i32): i32 {
+	f(l, r)
 }
 
 fn bar(v: i32, w: i32): i32 {
 	let mut a = v;
 	let mut c = 1;
-	while a != 0 {
+	while a != 0 | false && true || false {
 		c = c * a;
 		a = a - 1;
 	}
-	return c / w % w + w;
+	c / w % w + w
+}
+
+fn prefixes(): i32 {
+	let a = 0;
+	if !false {
+		return -+-**&&*&a;
+	} else {
+		return ~0;
+	}
 }
