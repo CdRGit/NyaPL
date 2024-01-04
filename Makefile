@@ -2,7 +2,7 @@
 .PHONY: rust_bootstrap
 
 rust_bootstrap:
-	cd rust_bootstrap && cargo run
+	cargo run -- test.nya
 
 csharp_compiler:
 	dotnet run --project csharp_compiler test.nya -d

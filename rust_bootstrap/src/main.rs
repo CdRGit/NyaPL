@@ -1,3 +1,8 @@
+use std::env;
+mod compiler;
+mod lexer;
+
 fn main() {
-    println!("Hello, world!");
+    let source = env::args().skip(1).next().unwrap();
+    compiler::compile(source);
 }
