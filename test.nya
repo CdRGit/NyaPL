@@ -8,7 +8,7 @@ fn [stdio] main(): i32 {
 	elif !(1 == 1) {
 		return 15;
 	}
-	elif 1 == 1 {
+	else {
 		200
 	}
 }
@@ -40,6 +40,6 @@ fn prefixes(): i32 {
 	if !false {
 		return -+-**&&*&a;
 	} else {
-		return !0;
+		return (!0, 10);
 	}
 }

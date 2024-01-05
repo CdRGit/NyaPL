@@ -47,19 +47,19 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockExpr(Box<[Expr]>);
+pub struct BlockExpr(pub Box<[Expr]>);
 
 #[derive(Debug, Clone)]
-pub struct IntExpr(Token, u64);
+pub struct IntExpr(pub Token, pub u64);
 
 #[derive(Debug, Clone)]
-pub struct LookupExpr(Token, Rc<str>);
+pub struct LookupExpr(pub Token, pub Rc<str>);
 
 #[derive(Debug, Clone)]
-pub struct CallExpr(Box<Expr>, Box<[Expr]>);
+pub struct CallExpr(pub Box<Expr>, pub Box<[Expr]>);
 
 #[derive(Debug, Clone)]
-pub struct BinExpr(InfixOp, Box<Expr>, Box<Expr>);
+pub struct BinExpr(pub InfixOp, pub Box<Expr>, pub Box<Expr>);
 
 #[derive(Debug, Clone)]
 pub enum InfixOp {
@@ -87,7 +87,7 @@ pub enum InfixOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct PreExpr(PrefixOp, Box<Expr>);
+pub struct PreExpr(pub PrefixOp, pub Box<Expr>);
 
 #[derive(Debug, Clone)]
 pub enum PrefixOp {
@@ -96,11 +96,11 @@ pub enum PrefixOp {
 	Not,
 
 	Reference,
-	Derference,
+	Dereference,
 }
 
 #[derive(Debug, Clone)]
-pub struct PostExpr(PostfixOp, Box<Expr>);
+pub struct PostExpr(pub PostfixOp, pub Box<Expr>);
 
 #[derive(Debug, Clone)]
 pub enum PostfixOp {
@@ -110,28 +110,28 @@ pub enum PostfixOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReturnExpr(Token, Box<Expr>);
+pub struct ReturnExpr(pub Token, pub Box<Expr>);
 
 #[derive(Debug, Clone)]
 pub struct IfExpr {
-	kw: Token,
-	condition: Box<Expr>,
-	body: BlockExpr,
-	else_: Option<Box<Expr>>,
+	pub kw: Token,
+	pub condition: Box<Expr>,
+	pub body: BlockExpr,
+	pub else_: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WhileExpr {
-	kw: Token,
-	condition: Box<Expr>,
-	body: BlockExpr,
+	pub kw: Token,
+	pub condition: Box<Expr>,
+	pub body: BlockExpr,
 }
 
 #[derive(Debug, Clone)]
 pub struct LetExpr {
-	kw: Token,
-	target: Pattern,
-	value: Box<Expr>,
+	pub kw: Token,
+	pub target: Pattern,
+	pub value: Box<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +152,7 @@ pub enum Effect {
 }
 
 #[derive(Debug, Clone)]
-pub struct Parameter(Rc<str>, Type);
+pub struct Parameter(pub Rc<str>, pub Type);
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -386,7 +386,7 @@ where I: Iterator<Item = &'a Token> {
 					TokenKind::Minus => PrefixOp::Negative,
 					TokenKind::Bang => PrefixOp::Not,
 
-					TokenKind::Star => PrefixOp::Derference,
+					TokenKind::Star => PrefixOp::Dereference,
 					TokenKind::And => PrefixOp::Reference,
 					TokenKind::AndAnd => {
 						prefix_stack.push(PrefixOp::Reference);
