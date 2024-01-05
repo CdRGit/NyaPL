@@ -11,7 +11,7 @@ pub fn print(tree: ParseTree) {
 
 fn print_function(writer: &mut impl Write, func: &Function, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
 	write!(writer, "{prefix_i}fn {}\n", func.name)?;
-	print_type(writer, &func.ret_type, prefix.clone() + cpi, prefix.clone() + cp, cpi, cp, fpi, fp);
+	print_type(writer, &func.ret_type, prefix.clone() + cpi, prefix.clone() + cp, cpi, cp, fpi, fp)?;
 	match &func.effects[..] {
 		[] => (),
 		effects => {
@@ -80,7 +80,7 @@ fn print_param(writer: &mut impl Write, param: &Parameter, prefix_i: String, pre
 	print_type(writer, &param.1, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)
 }
 
-fn print_effect(writer: &mut impl Write, effect: &Effect, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
+fn print_effect(writer: &mut impl Write, effect: &Effect, prefix_i: String, _prefix: String, _cpi: &str, _cp: &str, _fpi: &str, _fp: &str) -> IOResult<()> {
 	match effect {
 		Effect::Named(name) => write!(writer, "{prefix_i}{name}\n")
 	}
@@ -113,6 +113,10 @@ fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: St
 		E::Return(ret) => {
 			write!(writer, "{prefix_i}Return\n")?;
 			print_expr(writer, &ret.1, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
+		},
+		E::Stmt(expr) => {
+			write!(writer, "{prefix_i}Statement\n")?;
+			print_expr(writer, &expr, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
 		},
 		E::Boolean(val) => {
 			write!(writer, "{prefix_i}Bool({})\n", val)?;
@@ -180,6 +184,9 @@ fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: St
 
 				InfixOp::Assign => "=",
 
+				InfixOp::ShiftRight => ">>",
+				InfixOp::ShiftLeft => "<<",
+
 				InfixOp::Equal => "==",
 				InfixOp::NotEqual => "!=",
 				InfixOp::Greater => ">",
@@ -234,14 +241,85 @@ fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: St
 
 fn print_type(writer: &mut impl Write, type_: &Type, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
 	match type_ {
-		Type::Named(name) => write!(writer, "{prefix_i}{name}\n")
+		Type::Named(name) => write!(writer, "{prefix_i}{name}\n"),
+		Type::Tuple(params) => {
+			write!(writer, "{prefix_i}Tuple\n")?;
+			let mut it = params.into_iter().peekable();
+			while let Some(param) = it.next() {
+				let mut pf = prefix.clone();
+				let mut pfi = prefix.clone();
+
+				if it.peek().is_none() {
+					pf += fp;
+					pfi += fpi;
+				} else {
+					pf += cp;
+					pfi += cpi;
+				}
+
+				print_type(writer, param, pfi, pf, cpi, cp, fpi, fp)?;
+			}
+			Ok(())
+		},
+		Type::Function(params, ret) => {
+			write!(writer, "{prefix_i}fn\n")?;
+			print_type(writer, ret, prefix.clone() + cpi, prefix.clone() + cp, cpi, cp, fpi, fp)?;
+			write!(writer, "{prefix}{cpi}Parameters\n")?;
+			let mut it = params.into_iter().peekable();
+			while let Some(param) = it.next() {
+				let mut pf = prefix.clone() + cp;
+				let mut pfi = prefix.clone() + cp;
+
+				if it.peek().is_none() {
+					pf += fp;
+					pfi += fpi;
+				} else {
+					pf += cp;
+					pfi += cpi;
+				}
+
+				print_type(writer, param, pfi, pf, cpi, cp, fpi, fp)?;
+			}
+			Ok(())
+		},
 	}
 }
 
 fn print_pattern(writer: &mut impl Write, pattern: &Pattern, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
 	match pattern {
 		Pattern::Hole => write!(writer, "{prefix_i}(_)\n"),
-		Pattern::Named(Mutability::Immutable, name) => write!(writer, "{prefix_i}{name}\n"),
-		Pattern::Named(Mutability::Mutable, name) => write!(writer, "{prefix_i}mut {name}\n"),
+		Pattern::Named(Mutability::Immutable, name, type_) => {
+			write!(writer, "{prefix_i}{name}\n")?;
+			if let Some(t) = type_ {
+				print_type(writer, t, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
+			}
+			Ok(())
+		}
+		Pattern::Named(Mutability::Mutable, name, type_) => {
+			write!(writer, "{prefix_i}mut {name}\n")?;
+			if let Some(t) = type_ {
+				print_type(writer, t, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
+			}
+			Ok(())
+		}
+		Pattern::Tuple(params) => {
+			write!(writer, "{prefix_i}Tuple\n")?;
+			let mut it = params.into_iter().peekable();
+			while let Some(param) = it.next() {
+				let mut pf = prefix.clone() + cp;
+				let mut pfi = prefix.clone() + cp;
+
+				if it.peek().is_none() {
+					pf += fp;
+					pfi += fpi;
+				} else {
+					pf += cp;
+					pfi += cpi;
+				}
+
+				print_pattern(writer, param, pfi, pf, cpi, cp, fpi, fp)?;
+			}
+			Ok(())
+		}
 	}
 }

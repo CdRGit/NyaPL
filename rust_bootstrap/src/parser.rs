@@ -1,7 +1,6 @@
 use crate::lexer::{Token, TokenKind, Keyword};
 
 use std::rc::Rc;
-use std::collections::VecDeque;
 use std::iter::Peekable;
 use std::cmp::Ordering;
 use std::error::Error;
@@ -44,6 +43,7 @@ pub enum Expr {
 	If(IfExpr),
 	While(WhileExpr),
 	Let(LetExpr),
+	Stmt(Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +77,9 @@ pub enum InfixOp {
 	LogOr,
 
 	Assign,
+
+	ShiftRight,
+	ShiftLeft,
 
 	Equal,
 	NotEqual,
@@ -136,7 +139,8 @@ pub struct LetExpr {
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
-	Named(Mutability, Rc<str>),
+	Named(Mutability, Rc<str>, Option<Type>),
+	Tuple(Box<[Pattern]>),
 	Hole,
 }
 
@@ -157,6 +161,8 @@ pub struct Parameter(pub Rc<str>, pub Type);
 #[derive(Debug, Clone)]
 pub enum Type {
 	Named(Rc<str>),
+	Tuple(Box<[Type]>),
+	Function(Box<[Type]>, Box<Type>),
 }
 
 #[derive(Debug)]
@@ -208,6 +214,38 @@ where I: Iterator<Item = &'a Token> {
 	Ok(match tokens.next() {
 		Some(Token {kind: TokenKind::Identifier(name), offset: _})
 			=> Type::Named(name.clone()),
+		Some(Token {kind: TokenKind::LParen, offset: _}) => {
+			let mut params = Vec::new();
+			// end early if we immediately hit an RParen
+			if take_kind(tokens, TokenKind::RParen).is_err() {
+				loop {
+					params.push(parse_type(tokens)?);
+					if take_kind(tokens, TokenKind::RParen).is_ok() {
+						break;
+					}
+					take_kind(tokens, TokenKind::Comma)?;
+				}
+			}
+			return Ok(Type::Tuple(params.into()));
+		},
+		Some(Token {kind: TokenKind::Keyword(Keyword::Function), offset: _}) => {
+			// function pointer
+			// grab LParen
+			take_kind(tokens, TokenKind::LParen)?;
+			let mut params = Vec::new();
+			// end early if we immediately hit an RParen
+			if take_kind(tokens, TokenKind::RParen).is_err() {
+				loop {
+					params.push(parse_type(tokens)?);
+					if take_kind(tokens, TokenKind::RParen).is_ok() {
+						break;
+					}
+					take_kind(tokens, TokenKind::Comma)?;
+				}
+			}
+			let ret_type = parse_typetag(tokens)?;
+			return Ok(Type::Function(params.into(), ret_type.into()));
+		},
 		Some(tok) => return Err(ParseError::UnexpectedToken(tok.clone(), ExpectedMessage::Text("type"))),
 		None => return Err(ParseError::UnexpectedEndOfInput),
 	})
@@ -231,12 +269,41 @@ where I: Iterator<Item = &'a Token> {
 	match tokens.next() {
 		Some(Token { kind: TokenKind::Keyword(Keyword::Mutable), offset: _ }) => {
 			match tokens.next() {
-				Some(Token { kind: TokenKind::Identifier(n), offset: _}) => Ok(Pattern::Named(Mutability::Mutable, n.clone())),
+				Some(Token { kind: TokenKind::Identifier(n), offset: _}) => {
+					let type_ = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
+						Some(parse_typetag(tokens)?)
+					} else {
+						None
+					};
+					Ok(Pattern::Named(Mutability::Mutable, n.clone(), type_))
+				},
 				Some(t) => Err(ParseError::UnexpectedToken(t.clone(), ExpectedMessage::Text("pattern name"))),
 				None => Err(ParseError::UnexpectedEndOfInput),
 			}
 		},
-		Some(Token { kind: TokenKind::Identifier(n), offset: _ }) => Ok(Pattern::Named(Mutability::Immutable, n.clone())),
+		Some(Token { kind: TokenKind::LParen, offset: _}) => {
+			let mut params = Vec::new();
+			// end early if we immediately hit an RParen
+			if take_kind(tokens, TokenKind::RParen).is_err() {
+				loop {
+					params.push(parse_pattern(tokens)?);
+					if take_kind(tokens, TokenKind::RParen).is_ok() {
+						break;
+					}
+					take_kind(tokens, TokenKind::Comma)?;
+				}
+			}
+			return Ok(Pattern::Tuple(params.into()));
+		},
+		Some(Token { kind: TokenKind::Identifier(n), offset: _}) => {
+			let type_ = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
+				Some(parse_typetag(tokens)?)
+			} else {
+				None
+			};
+			Ok(Pattern::Named(Mutability::Immutable, n.clone(), type_))
+		},
+		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), offset: _}) => Ok(Pattern::Hole),
 		Some(t) => Err(ParseError::UnexpectedToken(t.clone(), ExpectedMessage::Text("pattern"))),
 		None => Err(ParseError::UnexpectedEndOfInput),
 	}
@@ -457,10 +524,39 @@ where I: Iterator<Item = &'a Token> {
 						tokens.next();
 						right.push((InfixOp::NotEqual, parse_prefix_expr(tokens)?))
 					},
+					TokenKind::Greater => {
+						tokens.next();
+						right.push((InfixOp::Greater, parse_prefix_expr(tokens)?))
+					},
+					TokenKind::GreaterEq => {
+						tokens.next();
+						right.push((InfixOp::GreaterEqual, parse_prefix_expr(tokens)?))
+					},
+					TokenKind::Lesser => {
+						tokens.next();
+						right.push((InfixOp::Lesser, parse_prefix_expr(tokens)?))
+					},
+					TokenKind::LesserEq => {
+						tokens.next();
+						right.push((InfixOp::LesserEqual, parse_prefix_expr(tokens)?))
+					},
+					// bitshifts
+					TokenKind::GreaterGreater => {
+						tokens.next();
+						right.push((InfixOp::ShiftRight, parse_prefix_expr(tokens)?))
+					},
+					TokenKind::LesserLesser => {
+						tokens.next();
+						right.push((InfixOp::ShiftLeft, parse_prefix_expr(tokens)?))
+					},
 					// bitwise logic
 					TokenKind::Pipe => {
 						tokens.next();
 						right.push((InfixOp::BitOr, parse_prefix_expr(tokens)?))
+					},
+					TokenKind::Caret => {
+						tokens.next();
+						right.push((InfixOp::BitXor, parse_prefix_expr(tokens)?))
 					},
 					TokenKind::And => {
 						tokens.next();
@@ -515,6 +611,7 @@ fn get_precedence(infix: &InfixOp) -> Precedence {
 		I::BitOr  => P::BitOr,
 		I::BitXor => P::BitXor,
 		I::BitAnd => P::BitAnd,
+		I::ShiftLeft | I::ShiftRight => P::BitShift,
 		I::Add | I::Sub => P::Additive,
 		I::Mult | I::Div | I::Mod => P::Multiplicative,
 	}
@@ -542,6 +639,7 @@ fn get_associavity(infix: &InfixOp) -> Associativity {
 		I::BitOr  => A::Left,
 		I::BitXor => A::Left,
 		I::BitAnd => A::Left,
+		I::ShiftLeft | I::ShiftRight => A::Left,
 		I::Add | I::Sub => A::Left,
 		I::Mult | I::Div | I::Mod => A::Left,
 	}
@@ -598,11 +696,35 @@ where I: Iterator<Item = &'a Token> {
 	}
 }
 
-fn requires_semicolon(expr: &Expr) -> bool {
+#[derive(Debug)]
+enum ExprAllowed {
+	Always,
+	Semicolon,
+	EndOfBlock,
+}
+
+fn restrictions(expr: &Expr) -> ExprAllowed {
+	use Expr as E;
+	use ExprAllowed as A;
 	match expr {
-		Expr::If(_) => false,
-		Expr::While(_) => false,
-		_ => true,
+		// literals at end of block only
+		E::Integer(_) | E::Boolean(_) | E::Tuple(_) | E::Unit => A::EndOfBlock,
+		// variable lookups at end of block only
+		E::Lookup(_) => A::EndOfBlock,
+		// operator expressions at end of block only
+		E::PostOp(_) | E::PreOp(_) => A::EndOfBlock,
+		// special case the assignment operators
+		E::BinOp(BinExpr(InfixOp::Assign, _, _)) => A::Semicolon,
+		E::BinOp(_) => A::EndOfBlock,
+
+		// allowed with semicolon (or at end of block)
+		E::Call(_) | E::Return(_) | E::Let(_) => A::Semicolon,
+
+		// blocks and block-requiring expressions are always allowed
+		E::Block(_) | E::If(_) | E::While(_) => A::Always,
+
+		// should not be reachable, but the compiler doesn't know that
+		E::Stmt(_) => unreachable!(),
 	}
 }
 
@@ -612,16 +734,46 @@ where I: Iterator<Item = &'a Token> {
 
 	loop {
 		let expr = parse_expr(tokens)?;
-		// no semicolon
-		if take_kind(tokens, TokenKind::SemiColon).is_err() && requires_semicolon(&expr) {
-			list.push(expr);
-			break;
+		let allowed = restrictions(&expr);
+		if let Some(tok) = tokens.peek() {
+			match (allowed, tok) {
+				(ExprAllowed::Always, _) => {
+					// take as many semicolons as desired
+					if take_kind(tokens, TokenKind::SemiColon).is_ok() {
+						// grab all of the semicolons
+						while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
+						list.push(Expr::Stmt(Box::new(expr)));
+					} else {
+						list.push(expr);
+					}
+				}
+				(ExprAllowed::Semicolon, Token { kind: TokenKind::SemiColon, offset: _ }) => {
+					// grab all the semicolons
+					while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
+					list.push(Expr::Stmt(Box::new(expr)));
+				}
+				(ExprAllowed::Semicolon, Token { kind: TokenKind::RCurly, offset: _ }) => {
+					// end of block
+					list.push(expr);
+				}
+				(ExprAllowed::Semicolon, _) => {
+					// expected a semicolon
+					return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Kind(TokenKind::SemiColon)));
+				}
+				(ExprAllowed::EndOfBlock, Token { kind: TokenKind::RCurly, offset: _ }) => {
+					// end of block
+					list.push(expr);
+				}
+				(ExprAllowed::EndOfBlock, _) => {
+					// expected a rcurly
+					return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Kind(TokenKind::RCurly)));
+				}
+			}
+		} else {
+			return Err(ParseError::UnexpectedEndOfInput);
 		}
-		list.push(expr);
-		// closing curly after semicolon?
 		if tokens.peek().filter(|t| t.kind == TokenKind::RCurly).is_some() {
-			// add the implied "unit" expression
-			list.push(Expr::Unit);
+			// end of block
 			break;
 		}
 	}

@@ -50,9 +50,17 @@ pub enum TokenKind {
 
 	EqEq,
 	BangEq,
+	Greater,
+	GreaterEq,
+	Lesser,
+	LesserEq,
+
+	GreaterGreater,
+	LesserLesser,
 
 	And,
 	AndAnd,
+	Caret,
 	Pipe,
 	PipePipe,
 
@@ -97,6 +105,7 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'*' => TokenKind::Star,
 			'%' => TokenKind::Percent,
 			'?' => TokenKind::Question,
+			'^' => TokenKind::Caret,
 			'&' => {
 				if let Some((_, '&')) = iter.peek() {
 					iter.next();
@@ -127,6 +136,28 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 					TokenKind::BangEq
 				} else {
 					TokenKind::Bang
+				}
+			},
+			'>' => {
+				if let Some((_, '=')) = iter.peek() {
+					iter.next();
+					TokenKind::GreaterEq
+				} else if let Some((_, '>')) = iter.peek() {
+					iter.next();
+					TokenKind::GreaterGreater
+				} else {
+					TokenKind::Greater
+				}
+			},
+			'<' => {
+				if let Some((_, '=')) = iter.peek() {
+					iter.next();
+					TokenKind::LesserEq
+				} else if let Some((_, '<')) = iter.peek() {
+					iter.next();
+					TokenKind::LesserLesser
+				} else {
+					TokenKind::Lesser
 				}
 			},
 			'0'..='9' => {

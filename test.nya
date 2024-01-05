@@ -15,19 +15,21 @@ fn [stdio] main(): i32 {
 
 fn foo(): i32 {
 	if { true } {
-		apply(bar, 10, 50)
+		apply(bar, (10, 50))
 	} else {
-		apply(bar, 10, 50)
+		apply(bar, (10, 50))
 	}
 }
 
-fn apply(f: i32, l: i32, r: i32): i32 {
+fn apply(f: fn (i32, i32): i32, args: (i32, i32)): i32 {
+	let (l, r) = args;
 	f?(l, r)
 }
 
 fn bar(v: i32, w: i32): i32 {
-	let mut a = v;
+	let mut a: i32 = v;
 	let mut c = 1;
+	let _ = 10;
 	while a != 0 | false && true || false & true {
 		c = c * a;
 		a = a - 1;
