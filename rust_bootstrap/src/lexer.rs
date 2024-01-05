@@ -58,6 +58,7 @@ pub enum TokenKind {
 
 	Assign,
 	Bang,
+	Question,
 
 	Colon,
 	SemiColon,
@@ -95,6 +96,7 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'/' => TokenKind::Slash,
 			'*' => TokenKind::Star,
 			'%' => TokenKind::Percent,
+			'?' => TokenKind::Question,
 			'&' => {
 				if let Some((_, '&')) = iter.peek() {
 					iter.next();

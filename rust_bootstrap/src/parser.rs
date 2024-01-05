@@ -227,6 +227,7 @@ enum InfixOps {
 enum SuffixOps {
 	// this only exists for testing purposes
 	Yell, // !
+	Query,// ?
 }
 
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -277,6 +278,25 @@ where I: Iterator<Item = &'a Token> {
 	let mut output = Vec::new();
 	let mut shunt_stack = Vec::new();
 
+	// FIXME: does not function correctly
+	// required states:
+	// Prefix
+	// Suffix
+
+	// Prefix
+	//	=> try to match prefix
+	//	 '(' => grouping parens, check for ) next to ensure the unit literal (if so, Suffix state),
+	//	 otherwise push and no change
+	//	 ? ok: push, no change
+	//	 else: parse atom, Suffix state
+	
+	// Suffix
+	//	=> try to match suffix
+	//	 '(' => calling parens, Prefix state
+	//	 ')' => shunting yard rules, no change
+	//	 ',' => shunting yard rules, Prefix state
+	//	 ? ok: push, no change
+	//	 else: parse infix, Prefix state
 	loop {
 		// PREFIX state
 		loop {

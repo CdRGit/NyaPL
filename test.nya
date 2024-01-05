@@ -3,7 +3,7 @@ fn [stdio] main(): i32 {
 		return 5;
 	}
 	if foo() == 10 {
-		return nested();
+		return nested!();
 	}
 	if !(1 == 1) {
 		return 15;
@@ -22,7 +22,7 @@ fn foo(): i32 {
 }
 
 fn apply(f: i32, l: i32, r: i32): i32 {
-	f(l, r)
+	f?(l, r)
 }
 
 fn bar(v: i32, w: i32): i32 {
