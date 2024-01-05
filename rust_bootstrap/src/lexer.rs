@@ -68,8 +68,6 @@ pub enum TokenKind {
 	Slash,
 	Star,
 	Percent,
-
-	Tilde,
 }
 
 #[derive(Debug)]
@@ -97,7 +95,6 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'/' => TokenKind::Slash,
 			'*' => TokenKind::Star,
 			'%' => TokenKind::Percent,
-			'~' => TokenKind::Tilde,
 			'&' => {
 				if let Some((_, '&')) = iter.peek() {
 					iter.next();

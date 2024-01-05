@@ -4,10 +4,10 @@ use crate::lexer;
 use crate::parser;
 
 pub fn compile(source: String) {
-	let content = fs::read_to_string(source).expect("Could not read source file");
+	let content = fs::read_to_string(source).unwrap();
 	println!("{content}");
-	let tokens = lexer::lex(&content).expect("Could not lex source file");
+	let tokens = lexer::lex(&content).unwrap();
 	println!("{tokens:#?}");
-	let ast = parser::parse(&tokens).expect("Could not parse source file");
+	let ast = parser::parse(&tokens).unwrap();
 	println!("{ast:#?}");
 }
