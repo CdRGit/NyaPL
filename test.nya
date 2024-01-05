@@ -5,10 +5,10 @@ fn [stdio] main(): i32 {
 	if foo() == 10 {
 		return nested!();
 	}
-	if !(1 == 1) {
+	elif !(1 == 1) {
 		return 15;
 	}
-	if 1 == 1 {
+	elif 1 == 1 {
 		200
 	}
 }
@@ -28,7 +28,7 @@ fn apply(f: i32, l: i32, r: i32): i32 {
 fn bar(v: i32, w: i32): i32 {
 	let mut a = v;
 	let mut c = 1;
-	while a != 0 | false && true || false {
+	while a != 0 | false && true || false & true {
 		c = c * a;
 		a = a - 1;
 	}
