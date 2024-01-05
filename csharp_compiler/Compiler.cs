@@ -126,6 +126,8 @@ public class Compiler {
 		Console.WriteLine("...");
 
 		Console.ResetColor();
+
+		Console.WriteLine(error.StackTrace);
 	}
 
 	public void Compile() {

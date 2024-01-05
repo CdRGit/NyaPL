@@ -1,23 +1,47 @@
-fn [exit] main(): i32 {
-	exit(40);
-	let (a, _, _, _, _, _) = big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
-	return a;
-}
-
-fn add_two(val: i32): i32 {
-	return val + 2;
-}
-
-typedef func = fn (i32): i32;
-
-fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_val: i32): (i32, func, func, func, func, func) {
-	let (a, b, c, d, e) = lot_of_functions;
-	return (a(b(c(d(e(in_val))))), a, b, c, d, e);
-}
-
-fn [exit] exit(error_code: i32): () {
-	unsafe [exit] {
-		let fuckingHellIJustWantToExit = intrinsic:syscall(60, error_code, 0, 0, 0, 0, 0);
+fn [stdio] main(): i32 {
+	fn nested(): i32 {
+		return 5;
 	}
-	return ();
+	if foo() == 10 {
+		return nested!();
+	}
+	elif !(1 == 1) {
+		return 15;
+	}
+	else {
+		200
+	}
+}
+
+fn foo(): i32 {
+	if { true } {
+		apply(bar, (10, 50))
+	} else {
+		apply(bar, (10, 50))
+	}
+}
+
+fn apply(f: fn (i32, i32): i32, args: (i32, i32)): i32 {
+	let (l, r) = args;
+	f?(l, r)
+}
+
+fn bar(v: i32, w: i32): i32 {
+	let mut a: i32 = v;
+	let mut c = 1;
+	let _ = 10;
+	while a != 0 | false && true || false & true {
+		c = c * a;
+		a = a - 1;
+	}
+	c / w % w + w
+}
+
+fn prefixes(): i32 {
+	let a = 0;
+	if !false {
+		return -+-**&&*&a;
+	} else {
+		return (!0, 10);
+	}
 }

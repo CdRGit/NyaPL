@@ -1,0 +1,121 @@
+parser workflow:
+
+enum ShuntState {
+	Prefix(bool),
+	Suffix,
+}
+
+BEGIN state = Prefix(false)
+state = Prefix(???)
+prefix_op? => push onto pre/infix stack, state = Prefix(false)
+lparen? => push onto pre/infix stack, state = Prefix(true)
+rparen? =>
+	Prefix(true)? => consider arity of top paren kind to be correct, state = Suffix
+	Prefix(false)? => consider arity of top paren kind to be one lower than expected, state = Suffix
+else => parse atom into output stack, state = Suffix
+
+state = Suffix
+suffix_op? => enqueue onto suffix queue
+lparen? => push a "call-paren" onto pre/infix stack, state = Prefix(true), parse again
+else => parse infix, handle shunting-yard stuff properly
+
+unmodified, just infix and grouping parens
+3 + 4 * 2 / (1 - 5) ** 2 ** 3
+name precedence associativity
+** 4 right
+ * 3 left
+ / 3 left
+ + 2 left
+ - 2 left
+
+output ()
+stack []
+ast-stack <()>
+right is top
+
+3
+(3)
+[]
+<3>
+
++
+(3)
+[+]
+<3>
+
+4
+(3 4)
+[+]
+<3 4>
+
+*
+(3 4)
+[+ *]
+<3 4>
+
+2
+(3 4 2)
+[+ *]
+<3 4 2>
+
+{/ and * have the same precedence and / is left-associative}
+{/ is higher precedence than + so only * is popped}
+/
+(3 4 2 *)
+[+ /]
+<3 (* 4 2)>
+
+(
+(3 4 2 *)
+[+ / (]
+<3 (* 4 2)>
+
+1
+(3 4 2 * 1)
+[+ / (]
+<3 (* 4 2) 1>
+
+-
+(3 4 2 * 1)
+[+ / ( -]
+<3 (* 4 2) 1>
+
+5
+(3 4 2 * 1 5)
+[+ / ( -]
+<3 (* 4 2) 1 5>
+
+{pop stack to output until a ( is popped}
+)
+(3 4 2 * 1 5 -)
+[+ /]
+<3 (* 4 2) (- 1 5)>
+
+**
+(3 4 2 * 1 5 -)
+[+ / **]
+<3 (* 4 2) (- 1 5)>
+
+2
+(3 4 2 * 1 5 - 2)
+[+ / **]
+<3 (* 4 2) (- 1 5) 2>
+
+{** is right-associative so we ignore the ** already there}
+**
+(3 4 2 * 1 5 - 2)
+[+ / ** **]
+<3 (* 4 2) (- 1 5) 2>
+
+3
+(3 4 2 * 1 5 - 2 3)
+[+ / ** **]
+<3 (* 4 2) (- 1 5) 2 3>
+
+{pop entire stack into output}
+EOF
+(3 4 2 * 1 5 - 2 3 ** ** / +)
+[]
+<(+ 3 (/ (* 4 2) (** (- 1 5) (** 2 3))))>
+
+infix operators pop right from output stack, then left from output stack, then push self to output stack when applied

@@ -263,8 +263,29 @@ public static class IrPrinter {
 		switch (type) {
 			case Intrinsic i: {
 					switch (i.Type) {
+						case IntrinsicType.U8:
+							builder.Append("u8");
+							break;
+						case IntrinsicType.U16:
+							builder.Append("u16");
+							break;
+						case IntrinsicType.U32:
+							builder.Append("u32");
+							break;
+						case IntrinsicType.U64:
+							builder.Append("u64");
+							break;
+						case IntrinsicType.I8:
+							builder.Append("i8");
+							break;
+						case IntrinsicType.I16:
+							builder.Append("i16");
+							break;
 						case IntrinsicType.I32:
 							builder.Append("i32");
+							break;
+						case IntrinsicType.I64:
+							builder.Append("i64");
 							break;
 						case IntrinsicType.Bool:
 							builder.Append("bool");
@@ -287,6 +308,10 @@ public static class IrPrinter {
 										firstIteration = false;
 									}
 									builder.Append(")");
+									} break;
+								case IntrinsicType.Ptr: {
+										PrettyPrint(builder, a.ParameterTypes[0]);
+										builder.Append("*");
 									} break;
 								default:
 									throw new Exception($"PrettyPrint(Apply.BaseType: IntrinsicType.{i.Type}) not implemented yet");

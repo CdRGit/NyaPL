@@ -14,8 +14,8 @@ public class Parser {
 		SourceLoc location = tokens.Take(open).Location;
 		while (!tokens.Match(close)) {
 			elements.Add(element(tokens));
-			if (separator != null && tokens.Match((TokenKind)separator!)) tokens.Take((TokenKind)separator!);
 			if (tokens.Match(close)) break;
+			else if (separator != null) tokens.Take((TokenKind)separator!);
 		}
 		tokens.Take(close);
 
@@ -293,12 +293,28 @@ public class Parser {
 	}
 
 	private TypeNode ParseType(TokenList.Context tokens) {
-		if (tokens.Match(KeywordKind.Hole)) return new TypeHoleNode(tokens.Take(KeywordKind.Hole).Location);
-		else if (tokens.Match(KeywordKind.Function)) return ParseFunctionType(tokens);
-		else if (tokens.Match(TokenKind.LParen)) return ParseTupleType(tokens);
+		TypeNode baseType;
 
-		Token tok = tokens.Take(TokenKind.Identifier);
-		return new NamedTypeNode(tok.Location, tok.StrVal);
+		if (tokens.Match(KeywordKind.Hole)) {
+			baseType = new TypeHoleNode(tokens.Take(KeywordKind.Hole).Location);
+		}
+		else if (tokens.Match(KeywordKind.Function)) {
+			baseType = ParseFunctionType(tokens);
+		}
+		else if (tokens.Match(TokenKind.LParen)) {
+			baseType = ParseTupleType(tokens);
+		}
+		else {
+			Token tok = tokens.Take(TokenKind.Identifier);
+			baseType = new NamedTypeNode(tok.Location, tok.StrVal);
+		}
+
+		while (tokens.Match(TokenKind.Star)) {
+			Token tok = tokens.Take(TokenKind.Star);
+			baseType = new PointerTypeNode(tok.Location, baseType);
+		}
+
+		return baseType;
 	}
 
 	private ParameterNode ParseParameter(TokenList.Context tokens) {

@@ -12,10 +12,17 @@ public class Intrinsic : Typ {
 
 public enum IntrinsicType {
 	// unsigned integers
-
+	U8,
+	U16,
+	U32,
+	U64,
 	// signed integers
+	I8,
+	I16,
 	I32,
+	I64,
 	// other
 	Tuple,
+	Ptr,
 	Bool,
 }

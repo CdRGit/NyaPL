@@ -16,9 +16,17 @@ using Nyapl.IrGeneration;
 namespace Nyapl.Typing;
 
 public class TypeChecker {
+	public static readonly Typ u8 = new Intrinsic(IntrinsicType.U8);
+	public static readonly Typ u16 = new Intrinsic(IntrinsicType.U16);
+	public static readonly Typ u32 = new Intrinsic(IntrinsicType.U32);
+	public static readonly Typ u64 = new Intrinsic(IntrinsicType.U64);
+	public static readonly Typ i8 = new Intrinsic(IntrinsicType.I8);
+	public static readonly Typ i16 = new Intrinsic(IntrinsicType.I16);
 	public static readonly Typ i32 = new Intrinsic(IntrinsicType.I32);
+	public static readonly Typ i64 = new Intrinsic(IntrinsicType.I64);
 	public static readonly Typ boolean = new Intrinsic(IntrinsicType.Bool);
 	public static readonly Typ tuple = new Intrinsic(IntrinsicType.Tuple);
+	public static readonly Typ ptr = new Intrinsic(IntrinsicType.Ptr);
 
 	private LValueNode Check(Context ctx, LValueNode lVal, bool mutableRequired = true) {
 		switch (lVal) {
@@ -86,6 +94,11 @@ public class TypeChecker {
 				var types = new AstListNode<TypeNode>(tupleType.Types.Location, tupleType.Types.Select(t => Check(ctx, t, allowHole)).ToList().AsReadOnly());
 				var t = new Apply(tuple, types.Select(t => t.Type!).ToList().AsReadOnly());
 				return new TupleTypeNode(tupleType.Location, types, t);
+			}
+			case PointerTypeNode pointer: {
+				var baseType = Check(ctx, pointer.BaseType, allowHole);
+				var t = new Apply(ptr, new[] {baseType.Type!}.ToList().AsReadOnly());
+				return new PointerTypeNode(pointer.Location, baseType, t);
 			}
 		}
 		throw new Exception($"Unimplemented: Check({type.GetType().Name})");
@@ -469,6 +482,28 @@ public class TypeChecker {
 		public bool Unsafe { get; set; } = false;
 		private Localizer.Platform Platform { get; }
 
+		static readonly Typ[] intTypes = {
+			u8,u16,u32,u64,
+			i8,i16,i32,i64,
+		};
+		public Context(Localizer.Platform platform) {
+			Platform = platform;
+			foreach (var it in intTypes) {
+				binOperators.Add((BinOpKind.Add,      it, it, it, IrOpKind.Add));
+				binOperators.Add((BinOpKind.Subtract, it, it, it, IrOpKind.Subtract));
+				binOperators.Add((BinOpKind.Multiply, it, it, it, IrOpKind.Multiply));
+				binOperators.Add((BinOpKind.Divide,   it, it, it, IrOpKind.Divide));
+				binOperators.Add((BinOpKind.Modulo,   it, it, it, IrOpKind.Modulo));
+
+				binOperators.Add((BinOpKind.Equal,    it, it, boolean, IrOpKind.Equal));
+				binOperators.Add((BinOpKind.NotEq,    it, it, boolean, IrOpKind.NotEq));
+
+				unOperators.Add((UnOpKind.Positive, it, it, IrOpKind.Positive));
+				unOperators.Add((UnOpKind.Negative, it, it, IrOpKind.Negative));
+			}
+		}
+
+
 		public bool LookupIntrinsic(string name, out Typ? type) {
 			if (Platform.HasIntrinsic(name)) {
 				type = Platform.GetIntrinsic(name);
@@ -479,28 +514,24 @@ public class TypeChecker {
 		}
 
 		Dictionary<string,Typ> namedTypes = new() {
+			{ "u8",  u8 },
+			{ "u16", u16 },
+			{ "u32", u32 },
+			{ "u64", u64 },
+			{ "i8",  i8 },
+			{ "i16", i16 },
 			{ "i32", i32 },
+			{ "i64", i64 },
 			{ "bool", boolean },
 		};
 
 		// TODO rework the way operators work so I can make tuples and functions have equality (assuming all types in the tuple have equality, for functions it doesn't matter)
 		List<(BinOpKind, Typ, Typ, Typ, IrOpKind)> binOperators = new() {
-			(BinOpKind.Add,      i32, i32, i32, IrOpKind.Add),
-			(BinOpKind.Subtract, i32, i32, i32, IrOpKind.Subtract),
-			(BinOpKind.Multiply, i32, i32, i32, IrOpKind.Multiply),
-			(BinOpKind.Divide,   i32, i32, i32, IrOpKind.Divide),
-			(BinOpKind.Modulo,   i32, i32, i32, IrOpKind.Modulo),
-
-			(BinOpKind.Equal,    i32, i32, boolean, IrOpKind.Equal),
-			(BinOpKind.NotEq,    i32, i32, boolean, IrOpKind.NotEq),
-
 			(BinOpKind.Equal,    boolean, boolean, boolean, IrOpKind.Equal),
 			(BinOpKind.NotEq,    boolean, boolean, boolean, IrOpKind.NotEq),
 		};
 		List<(UnOpKind, Typ, Typ, IrOpKind)> unOperators = new() {
 			(UnOpKind.Not,      boolean, boolean, IrOpKind.Not),
-			(UnOpKind.Positive, i32, i32, IrOpKind.Positive),
-			(UnOpKind.Negative, i32, i32, IrOpKind.Negative),
 		};
 
 		public IrParam.IntrinsicOp GetOp(Typ left, Typ right, BinOpKind kind)
@@ -648,10 +679,6 @@ public class TypeChecker {
 			}
 
 			public override string ToString() => string.Join("\n", variables.Select((pair) => $"\t{pair.Key}: {(pair.Value.isFunc ? "[fn]" : "")}{pair.Value.type}"));
-		}
-
-		public Context(Localizer.Platform platform) {
-			Platform = platform;
 		}
 
 		public void NewFunction(Typ returnType, ReadOnlyCollection<Effect> effects, string fullName) {
