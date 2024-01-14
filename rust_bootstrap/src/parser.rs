@@ -30,10 +30,12 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub enum Expr {
 	Unit,
+	Hole,
 	Boolean(bool),
 	Integer(IntExpr),
 	Tuple(Box<[Expr]>),
 	Block(BlockExpr),
+	Assign(Pattern, Box<Expr>),
 	BinOp(BinExpr),
 	PreOp(PreExpr),
 	PostOp(PostExpr),
@@ -75,8 +77,6 @@ pub enum InfixOp {
 
 	LogAnd,
 	LogOr,
-
-	Assign,
 
 	ShiftRight,
 	ShiftLeft,
@@ -141,6 +141,7 @@ pub struct LetExpr {
 pub enum Pattern {
 	Named(Mutability, Rc<str>, Option<Type>),
 	Tuple(Box<[Pattern]>),
+	Expression(Box<Expr>),
 	Hole,
 }
 
@@ -170,6 +171,7 @@ pub enum ParseError {
 	UnexpectedToken(Token, ExpectedMessage),
 	UnexpectedEndOfInput,
 	AmbiguousOperatorOrder(Expr),
+	IllegalExpressionTerm(&'static str),
 }
 
 #[derive(Debug)]
@@ -349,7 +351,7 @@ where I: Iterator<Item = &'a Token> {
 		// implied Unit expression
 		Box::new([Expr::Unit])
 	} else {
-		let body = parse_expr_list(tokens)?;
+		let body = parse_stmt_list(tokens)?;
 		take_kind(tokens, TokenKind::RCurly)?;
 		body
 	};
@@ -360,13 +362,13 @@ fn parse_atom_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let tok = tokens.peek().ok_or(ParseError::UnexpectedEndOfInput)?.clone().clone();
 	Ok(match tok.kind.clone() {
+		TokenKind::Keyword(Keyword::Hole) => { tokens.next(); Expr::Hole },
 		TokenKind::Integer(val) => { tokens.next(); Expr::Integer(IntExpr(tok, val)) },
 		TokenKind::Keyword(Keyword::True) => { tokens.next(); Expr::Boolean(true) },
 		TokenKind::Keyword(Keyword::False) => { tokens.next(); Expr::Boolean(false) },
 		TokenKind::Keyword(Keyword::Return) => Expr::Return(parse_return(tokens)?),
 		TokenKind::Keyword(Keyword::If) => Expr::If(parse_if(tokens)?),
 		TokenKind::Keyword(Keyword::While) => Expr::While(parse_while(tokens)?),
-		TokenKind::Keyword(Keyword::Let) => Expr::Let(parse_let(tokens)?),
 		TokenKind::Identifier(name) => { tokens.next(); Expr::Lookup(LookupExpr(tok.clone(), name)) },
 		TokenKind::LCurly => { Expr::Block(parse_block_expr(tokens)?) },
 		TokenKind::LParen => {
@@ -376,7 +378,7 @@ where I: Iterator<Item = &'a Token> {
 			// does this call have args?
 			if take_kind(tokens, TokenKind::RParen).is_err() {
 				loop {
-					args.push(parse_expr(tokens)?);
+					args.push(parse_pattern_or_expr(tokens)?);
 					if take_kind(tokens, TokenKind::Comma).is_err() {
 						// we need to have an rparen here now
 						take_kind(tokens, TokenKind::RParen)?;
@@ -421,7 +423,7 @@ where I: Iterator<Item = &'a Token> {
 						// does this call have args?
 						if take_kind(tokens, TokenKind::RParen).is_err() {
 							loop {
-								args.push(parse_expr(tokens)?);
+								args.push(parse_pattern_or_expr(tokens)?);
 								if take_kind(tokens, TokenKind::Comma).is_err() {
 									// we need to have an rparen here now
 									take_kind(tokens, TokenKind::RParen)?;
@@ -509,12 +511,7 @@ where I: Iterator<Item = &'a Token> {
 					TokenKind::Percent => {
 						tokens.next();
 						right.push((InfixOp::Mod, parse_prefix_expr(tokens)?))
-					}
-					// reassignment
-					TokenKind::Assign => {
-						tokens.next();
-						right.push((InfixOp::Assign, parse_prefix_expr(tokens)?))
-					}
+					},
 					// comparisons
 					TokenKind::EqEq => {
 						tokens.next();
@@ -583,7 +580,6 @@ where I: Iterator<Item = &'a Token> {
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 // later is tighter
 enum Precedence {
-	Assignment,
 	LogicOr,
 	LogicAnd,
 	Comparison,
@@ -599,7 +595,6 @@ fn get_precedence(infix: &InfixOp) -> Precedence {
 	use InfixOp as I;
 	use Precedence as P;
 	match infix {
-		I::Assign => P::Assignment,
 		I::LogOr  => P::LogicOr,
 		I::LogAnd => P::LogicAnd,
 		I::Equal
@@ -627,7 +622,6 @@ fn get_associavity(infix: &InfixOp) -> Associativity {
 	use InfixOp as I;
 	use Associativity as A;
 	match infix {
-		I::Assign => A::Right,
 		I::LogOr  => A::Left,
 		I::LogAnd => A::Left,
 		I::Equal
@@ -645,7 +639,7 @@ fn get_associavity(infix: &InfixOp) -> Associativity {
 	}
 }
 
-fn parse_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_bin_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let bins = parse_bin_exprs(tokens)?;
 
@@ -696,6 +690,88 @@ where I: Iterator<Item = &'a Token> {
 	}
 }
 
+fn validate_expr(expr: &Expr) -> Result<(), ParseError> {
+	use Expr as E;
+	match expr {
+		E::Hole => Err(ParseError::IllegalExpressionTerm("Cannot use holes in expression")),
+		E::Unit | E::Integer(_) | E::Boolean(_) => Ok(()),
+		E::Lookup(_) => Ok(()),
+
+		E::Assign(_, rhs) => validate_expr(&rhs),
+		E::Tuple(exprs) => {
+			let vals: Result<Vec<_>, ParseError> = exprs.iter().map(|e| validate_expr(e)).collect();
+			vals?;
+			Ok(())
+		},
+		E::Call(CallExpr(base, exprs)) => {
+			validate_expr(base)?;
+			let vals: Result<Vec<_>, ParseError> = exprs.iter().map(|e| validate_expr(e)).collect();
+			vals?;
+			Ok(())
+		},
+		E::BinOp(BinExpr(_, lhs, rhs)) => {
+			validate_expr(lhs)?;
+			validate_expr(rhs)
+		},
+		E::PreOp(PreExpr(_, base)) => {
+			validate_expr(base)
+		},
+		E::PostOp(PostExpr(_, base)) => {
+			validate_expr(base)
+		},
+		// these should be fine
+		E::Block(_) => Ok(()),
+		E::Return(_) => Ok(()),
+		E::While(_) => Ok(()),
+		E::If(_) => Ok(()),
+		E::Let(_) => Ok(()),
+		E::Stmt(e) => validate_expr(e),
+	}
+}
+
+fn rewrite_to_pattern(expr: &Expr) -> Result<Pattern, ParseError> {
+	use Expr as E;
+	use Pattern as P;
+	match expr {
+		E::Lookup(LookupExpr(_, name)) => Ok(P::Named(Mutability::Mutable, name.clone(), None)),
+		E::Hole => Ok(P::Hole),
+		E::Tuple(exprs) => {
+			let pats: Result<Vec<_>, _> = exprs.iter().map(|e| rewrite_to_pattern(e)).collect();
+			Ok(P::Tuple(pats?.into()))
+		},
+		E::Unit | E::Boolean(_) | E::Integer(_) => Ok(P::Expression(Box::new(expr.clone()))),
+		E::BinOp(_) | E::PreOp(_) | E::PostOp(_) |
+		E::Assign(..) => Err(ParseError::IllegalExpressionTerm("no operators allowed in patterns")),
+		E::Return(_) => Err(ParseError::IllegalExpressionTerm("no returns allowed in patterns")),
+		E::If(_) => Err(ParseError::IllegalExpressionTerm("no ifs allowed in patterns")),
+		E::While(_) => Err(ParseError::IllegalExpressionTerm("no whiles allowed in patterns")),
+		E::Let(_) => Err(ParseError::IllegalExpressionTerm("no lets allowed in patterns")),
+		E::Stmt(_) => Err(ParseError::IllegalExpressionTerm("no statements allowed in patterns")),
+		E::Block(_) => todo!("block patterns"),
+		E::Call(_) => todo!("call patterns"),
+	}
+}
+
+fn parse_pattern_or_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+where I: Iterator<Item = &'a Token> {
+	let lhs = parse_bin_expr(tokens)?;
+
+	if take_kind(tokens, TokenKind::Assign).is_ok() {
+		let rhs = parse_expr(tokens)?;
+		validate_expr(&rhs)?;
+		return Ok(Expr::Assign(rewrite_to_pattern(&lhs)?, rhs.into()));
+	}
+	return Ok(lhs);
+}
+
+fn parse_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+where I: Iterator<Item = &'a Token> {
+	let lhs = parse_pattern_or_expr(tokens)?;
+
+	validate_expr(&lhs)?;
+	return Ok(lhs);
+}
+
 #[derive(Debug)]
 enum ExprAllowed {
 	Always,
@@ -707,18 +783,18 @@ fn restrictions(expr: &Expr) -> ExprAllowed {
 	use Expr as E;
 	use ExprAllowed as A;
 	match expr {
+		// this is only here for patterns
+		// but if it occurs we need to panic
+		E::Hole => panic!("hole somehow managed to pass through to the end"),
 		// literals at end of block only
 		E::Integer(_) | E::Boolean(_) | E::Tuple(_) | E::Unit => A::EndOfBlock,
 		// variable lookups at end of block only
 		E::Lookup(_) => A::EndOfBlock,
 		// operator expressions at end of block only
-		E::PostOp(_) | E::PreOp(_) => A::EndOfBlock,
-		// special case the assignment operators
-		E::BinOp(BinExpr(InfixOp::Assign, _, _)) => A::Semicolon,
-		E::BinOp(_) => A::EndOfBlock,
+		E::PostOp(_) | E::PreOp(_) | E::BinOp(_) => A::EndOfBlock,
 
 		// allowed with semicolon (or at end of block)
-		E::Call(_) | E::Return(_) | E::Let(_) => A::Semicolon,
+		E::Call(_) | E::Return(_) | E::Let(_) | E::Assign(..) => A::Semicolon,
 
 		// blocks and block-requiring expressions are always allowed
 		E::Block(_) | E::If(_) | E::While(_) => A::Always,
@@ -728,13 +804,23 @@ fn restrictions(expr: &Expr) -> ExprAllowed {
 	}
 }
 
-fn parse_expr_list<'a, I>(tokens: &mut Peekable<I>) -> Result<Box<[Expr]>, ParseError>
+fn parse_stmt<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+where I: Iterator<Item = &'a Token> {
+	if tokens.peek().filter(|t| t.kind == TokenKind::Keyword(Keyword::Let)).is_some() {
+		// let
+		return Ok(Expr::Let(parse_let(tokens)?));
+	}
+	let expr = parse_expr(tokens)?;
+	return Ok(expr);
+}
+
+fn parse_stmt_list<'a, I>(tokens: &mut Peekable<I>) -> Result<Box<[Expr]>, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let mut list = Vec::new();
 
 	loop {
-		let expr = parse_expr(tokens)?;
-		let allowed = restrictions(&expr);
+		let stmt = parse_stmt(tokens)?;
+		let allowed = restrictions(&stmt);
 		if let Some(tok) = tokens.peek() {
 			match (allowed, tok) {
 				(ExprAllowed::Always, _) => {
@@ -742,19 +828,19 @@ where I: Iterator<Item = &'a Token> {
 					if take_kind(tokens, TokenKind::SemiColon).is_ok() {
 						// grab all of the semicolons
 						while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
-						list.push(Expr::Stmt(Box::new(expr)));
+						list.push(Expr::Stmt(Box::new(stmt)));
 					} else {
-						list.push(expr);
+						list.push(stmt);
 					}
 				}
 				(ExprAllowed::Semicolon, Token { kind: TokenKind::SemiColon, offset: _ }) => {
 					// grab all the semicolons
 					while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
-					list.push(Expr::Stmt(Box::new(expr)));
+					list.push(Expr::Stmt(Box::new(stmt)));
 				}
 				(ExprAllowed::Semicolon, Token { kind: TokenKind::RCurly, offset: _ }) => {
 					// end of block
-					list.push(expr);
+					list.push(stmt);
 				}
 				(ExprAllowed::Semicolon, _) => {
 					// expected a semicolon
@@ -762,7 +848,7 @@ where I: Iterator<Item = &'a Token> {
 				}
 				(ExprAllowed::EndOfBlock, Token { kind: TokenKind::RCurly, offset: _ }) => {
 					// end of block
-					list.push(expr);
+					list.push(stmt);
 				}
 				(ExprAllowed::EndOfBlock, _) => {
 					// expected a rcurly
@@ -797,7 +883,7 @@ where I: Iterator<Item = &'a Token> {
 		// implied Unit expression
 		Box::new([Expr::Unit])
 	} else {
-		let body = parse_expr_list(tokens)?;
+		let body = parse_stmt_list(tokens)?;
 		take_kind(tokens, TokenKind::RCurly)?;
 		body
 	};

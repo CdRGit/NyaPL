@@ -89,6 +89,7 @@ fn print_effect(writer: &mut impl Write, effect: &Effect, prefix_i: String, _pre
 fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
 	use Expr as E;
 	match expr {
+		E::Hole => panic!("hole stayed in expression"),
 		E::Block(block) => {
 			write!(writer, "{prefix_i}Block\n")?;
 			let mut it = block.0.into_iter().peekable();
@@ -104,6 +105,11 @@ fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: St
 				}
 				print_expr(writer, expr, pfi, pf, cpi, cp, fpi, fp)?;
 			}
+		},
+		E::Assign(pattern, expr) => {
+			write!(writer, "{prefix_i}Assign\n")?;
+			print_pattern(writer, pattern, prefix.clone() + cpi, prefix.clone() + cp, cpi, cp, fpi, fp)?;
+			print_expr(writer, expr, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
 		},
 		E::Let(let_) => {
 			write!(writer, "{prefix_i}Let\n")?;
@@ -181,8 +187,6 @@ fn print_expr(writer: &mut impl Write, expr: &Expr, prefix_i: String, prefix: St
 
 				InfixOp::LogAnd => "&&",
 				InfixOp::LogOr => "||",
-
-				InfixOp::Assign => "=",
 
 				InfixOp::ShiftRight => ">>",
 				InfixOp::ShiftLeft => "<<",
@@ -287,27 +291,27 @@ fn print_type(writer: &mut impl Write, type_: &Type, prefix_i: String, prefix: S
 
 fn print_pattern(writer: &mut impl Write, pattern: &Pattern, prefix_i: String, prefix: String, cpi: &str, cp: &str, fpi: &str, fp: &str) -> IOResult<()> {
 	match pattern {
-		Pattern::Hole => write!(writer, "{prefix_i}(_)\n"),
+		Pattern::Hole => write!(writer, "{prefix_i}[pat] (_)\n"),
 		Pattern::Named(Mutability::Immutable, name, type_) => {
-			write!(writer, "{prefix_i}{name}\n")?;
+			write!(writer, "{prefix_i}[pat] {name}\n")?;
 			if let Some(t) = type_ {
 				print_type(writer, t, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
 			}
 			Ok(())
 		}
 		Pattern::Named(Mutability::Mutable, name, type_) => {
-			write!(writer, "{prefix_i}mut {name}\n")?;
+			write!(writer, "{prefix_i}[pat] mut {name}\n")?;
 			if let Some(t) = type_ {
 				print_type(writer, t, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
 			}
 			Ok(())
 		}
 		Pattern::Tuple(params) => {
-			write!(writer, "{prefix_i}Tuple\n")?;
+			write!(writer, "{prefix_i}[pat] Tuple\n")?;
 			let mut it = params.into_iter().peekable();
 			while let Some(param) = it.next() {
-				let mut pf = prefix.clone() + cp;
-				let mut pfi = prefix.clone() + cp;
+				let mut pf = prefix.clone();
+				let mut pfi = prefix.clone();
 
 				if it.peek().is_none() {
 					pf += fp;
@@ -319,6 +323,11 @@ fn print_pattern(writer: &mut impl Write, pattern: &Pattern, prefix_i: String, p
 
 				print_pattern(writer, param, pfi, pf, cpi, cp, fpi, fp)?;
 			}
+			Ok(())
+		}
+		Pattern::Expression(e) => {
+			write!(writer, "{prefix_i}[pat] expression\n")?;
+			print_expr(writer, e, prefix.clone() + fpi, prefix + fp, cpi, cp, fpi, fp)?;
 			Ok(())
 		}
 	}
