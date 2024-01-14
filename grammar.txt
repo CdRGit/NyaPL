@@ -1,0 +1,90 @@
+program -> <top_level>*
+
+top_level -> <function>
+
+function -> 'fn' <effect_list>? <identifier> '(' <param_list> ')' <type_tag> '{' <function>* <stmt>* <expr>? '}'
+
+effect_list -> '[' <effect>* ']'
+
+effect -> <identifier>
+
+identifier -> ([a-zA-Z_][a-zA-Z0-9_]*) - <hole>
+
+hole -> '_'
+
+param_list -> <param> (',' <param_list>)?
+
+param -> <binding_pattern>
+
+binding_pattern -> <hole> <type_tag>?
+                 | <identifier> <type_tag>?
+                 | '(' <binding_pattern> (',' <binding_pattern>)+ ')' <type_tag>?
+                 | <identifier> '(' (<binding_pattern> (',' <binding_pattern>)*)? ')' <type_tag>?
+
+type_tag -> ':' <type>
+
+type -> <identifier>
+      | 'fn' '(' (<type> (',' <type>)*)? ')' ':' <type>
+      | '(' <type> (',' <type>)+ ')'
+      | '()'
+
+stmt -> <standalone_expr> ';'+
+      | let <binding_pattern> '=' <expr> ';'+
+      | <block_expr> ';'*
+
+standalone_expr -> <assignment>
+                 | <call>
+                 | <return>
+
+assignment -> <assign_pattern> '=' <expr>
+
+assign_pattern -> <hole>
+                | <identifier>
+                | '(' <assign_pattern> (',' <assign_pattern>)+ ')'
+                | <identifier> '(' (<assign_pattern> (',' <assign_pattern>)*)? ')'
+
+expr -> <standalone_expr>
+      | <binary_expr>
+
+binary_expr -> <prefix_expr> (<infix> <prefix_expr>)*
+
+prefix_expr -> <prefix>* <suffix_expr>
+
+suffix_expr -> <call> <suffix>*
+             | <atom_expr> <suffix>*
+
+atom_expr -> <block_expr>
+           | <int_literal>
+           | 'true'
+           | 'false'
+           | '()'
+           | '(' <expr> (',' <expr>)* ')'
+
+call -> <suffix_expr> '(' (<expr> (',' <expr>)*)? ')'
+
+return -> 'return' <expr>
+
+// lowest binds tightest
+infix -> '||'
+       | '&&'
+       | '>' | '>=' | '==' | '<=' | '<' | '!='
+       | '|'
+       | '^'
+       | '&'
+       | '<<' | '>>'
+       | '+' | '-'
+       | '*' | '/' | '%'
+
+prefix -> '+' | '-' | '*' | '!' | '&'
+
+// temporary for testing purposes
+suffix -> '!' | '?'
+
+block_expr -> 'if' '(' <expr> ')' <scope> <else>?
+            | 'while' '(' <expr> ')' <scope>
+            | <scope>
+
+scope -> '{' <stmt>* <expr>? '}'
+
+else -> 'elif' '(' <expr> ')' <scope> <else>?
+      | 'else' <scope>
