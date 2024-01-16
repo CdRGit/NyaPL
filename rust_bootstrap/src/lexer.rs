@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::source_span::{SourceSpan, SourceLoc};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Keyword {
 	If,
@@ -25,12 +27,12 @@ pub enum Keyword {
 #[derive(Debug, Clone)]
 pub struct Token {
 	pub kind: TokenKind,
-	pub offset: usize,
+	pub span: SourceSpan,
 }
 
 impl Token {
-	fn new(offset: usize, kind: TokenKind) -> Token {
-		return Token {offset, kind}
+	fn new(span: SourceSpan, kind: TokenKind) -> Token {
+		return Token {span, kind}
 	}
 }
 
@@ -84,11 +86,32 @@ pub enum LexError {
 	UnexpectedChar(char, usize),
 }
 
-pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
+pub fn lex(path: Rc<str>, source_text: &str) -> Result<Box<[Token]>, LexError> {
 	let mut vec = Vec::new();
 	let mut iter = source_text.chars().enumerate().peekable();
+	let (mut line, mut col): (usize, usize) = (0, 0);
 	while let Some((idx, c)) = iter.next() {
-		vec.push(Token::new(idx, match c {
+		let (s_line, s_col) = (line, col);
+		let mut e_idx = idx;
+		match c {
+			'\r' => {
+				if let Some((_, '\n')) = iter.peek() {
+					iter.next();
+				}
+				line += 1;
+				col = 0;
+				continue;
+			}
+			'\n' => {
+				line += 1;
+				col = 0;
+				continue;
+			}
+			_ => {
+				col += 1;
+			}
+		}
+		let kind = match c {
 			' ' | '\t' | '\n' => continue,
 			',' => TokenKind::Comma,
 			':' => TokenKind::Colon,
@@ -107,15 +130,18 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'?' => TokenKind::Question,
 			'^' => TokenKind::Caret,
 			'&' => {
-				if let Some((_, '&')) = iter.peek() {
-					iter.next();
+				if let Some((e, '&')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					TokenKind::AndAnd
 				} else {
 					TokenKind::And
 				}
 			},
 			'|' => {
-				if let Some((_, '|')) = iter.peek() {
+				if let Some((e, '|')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::PipePipe
 				} else {
@@ -123,7 +149,9 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 				}
 			},
 			'=' => {
-				if let Some((_, '=')) = iter.peek() {
+				if let Some((e, '=')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::EqEq
 				} else {
@@ -131,7 +159,9 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 				}
 			},
 			'!' => {
-				if let Some((_, '=')) = iter.peek() {
+				if let Some((e, '=')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::BangEq
 				} else {
@@ -139,10 +169,13 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 				}
 			},
 			'>' => {
-				if let Some((_, '=')) = iter.peek() {
+				if let Some((e, '=')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::GreaterEq
-				} else if let Some((_, '>')) = iter.peek() {
+				} else if let Some((e, '>')) = iter.peek() {
+					e_idx = *e;
 					iter.next();
 					TokenKind::GreaterGreater
 				} else {
@@ -150,10 +183,14 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 				}
 			},
 			'<' => {
-				if let Some((_, '=')) = iter.peek() {
+				if let Some((e, '=')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::LesserEq
-				} else if let Some((_, '<')) = iter.peek() {
+				} else if let Some((e, '<')) = iter.peek() {
+					e_idx = *e;
+					col = col + 1;
 					iter.next();
 					TokenKind::LesserLesser
 				} else {
@@ -163,11 +200,13 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'0'..='9' => {
 				let mut val = 0;
 				val += c as u64 - b'0' as u64;
-				while let Some((_, c)) = iter.peek() {
+				while let Some((e, c)) = iter.peek() {
 					match c {
 						'0'..='9' => {
 							val *= 10;
 							val += *c as u64 - b'0' as u64;
+							e_idx = *e;
+							col = col + 1;
 							iter.next();
 						},
 						_ => break,
@@ -179,9 +218,11 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 			'a'..='z' | 'A'..='Z' | '_' => {
 				let mut value = String::new();
 				value.push(c);
-				while let Some((_, c)) = iter.peek() {
+				while let Some((e, c)) = iter.peek() {
 					match c {
 						'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => {
+							e_idx = *e;
+							col = col + 1;
 							value.push(*c);
 							iter.next();
 						},
@@ -208,7 +249,9 @@ pub fn lex(source_text: &str) -> Result<Box<[Token]>, LexError> {
 				}
 			},
 			_ => return Err(LexError::UnexpectedChar(c, idx)),
-		}));
+		};
+		e_idx = e_idx + 1;
+		vec.push(Token::new(SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx: e_idx, col, line}}, kind));
 	}
 	return Ok(vec.into());
 }

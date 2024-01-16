@@ -1,4 +1,7 @@
 use crate::lexer::{Token, TokenKind, Keyword};
+use crate::source_span::SourceSpan;
+
+use crate::ast::{*};
 
 use std::rc::Rc;
 use std::iter::Peekable;
@@ -6,442 +9,343 @@ use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::Display;
 
-#[derive(Debug)]
-pub struct ParseTree {
-	pub toplevel: Box<[TopLevelStmt]>,
-}
-
-#[derive(Debug)]
-pub enum TopLevelStmt {
-	Function(Function),
-}
-
-#[derive(Debug)]
-pub struct Function {
-	pub kw: Token,
-	pub effects: Box<[Effect]>,
-	pub name: Rc<str>,
-	pub params: Box<[Parameter]>,
-	pub ret_type: Type,
-	pub children: Box<[Function]>,
-	pub body: BlockExpr,
-}
-
 #[derive(Debug, Clone)]
-pub enum Expr {
-	Unit,
-	Hole,
-	Boolean(bool),
-	Integer(IntExpr),
-	Tuple(Box<[Expr]>),
-	Block(BlockExpr),
-	Assign(Pattern, Box<Expr>),
-	BinOp(BinExpr),
-	PreOp(PreExpr),
-	PostOp(PostExpr),
-	Lookup(LookupExpr),
-	Call(CallExpr),
-	Return(ReturnExpr),
-	If(IfExpr),
-	While(WhileExpr),
-	Let(LetExpr),
-	Stmt(Box<Expr>),
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockExpr(pub Box<[Expr]>);
-
-#[derive(Debug, Clone)]
-pub struct IntExpr(pub Token, pub u64);
-
-#[derive(Debug, Clone)]
-pub struct LookupExpr(pub Token, pub Rc<str>);
-
-#[derive(Debug, Clone)]
-pub struct CallExpr(pub Box<Expr>, pub Box<[Expr]>);
-
-#[derive(Debug, Clone)]
-pub struct BinExpr(pub InfixOp, pub Box<Expr>, pub Box<Expr>);
-
-#[derive(Debug, Clone)]
-pub enum InfixOp {
-	Add,
-	Sub,
-	Mult,
-	Div,
-	Mod,
-
-	BitAnd,
-	BitOr,
-	BitXor,
-
-	LogAnd,
-	LogOr,
-
-	ShiftRight,
-	ShiftLeft,
-
-	Equal,
-	NotEqual,
-	Greater,
-	GreaterEqual,
-	Lesser,
-	LesserEqual,
-}
-
-#[derive(Debug, Clone)]
-pub struct PreExpr(pub PrefixOp, pub Box<Expr>);
-
-#[derive(Debug, Clone)]
-pub enum PrefixOp {
-	Identity,
-	Negative,
-	Not,
-
-	Reference,
-	Dereference,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostExpr(pub PostfixOp, pub Box<Expr>);
-
-#[derive(Debug, Clone)]
-pub enum PostfixOp {
-	// temporary
-	Yell,
-	Query,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReturnExpr(pub Token, pub Box<Expr>);
-
-#[derive(Debug, Clone)]
-pub struct IfExpr {
-	pub kw: Token,
-	pub condition: Box<Expr>,
-	pub body: BlockExpr,
-	pub else_: Option<Box<Expr>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WhileExpr {
-	pub kw: Token,
-	pub condition: Box<Expr>,
-	pub body: BlockExpr,
-}
-
-#[derive(Debug, Clone)]
-pub struct LetExpr {
-	pub kw: Token,
-	pub target: Pattern,
-	pub value: Box<Expr>,
-}
-
-#[derive(Debug, Clone)]
-pub enum Pattern {
-	Named(Mutability, Rc<str>, Option<Type>),
-	Tuple(Box<[Pattern]>),
-	Expression(Box<Expr>),
-	Hole,
-}
-
-#[derive(Debug, Clone)]
-pub enum Mutability {
-	Immutable,
-	Mutable,
-}
-
-#[derive(Debug, Clone)]
-pub enum Effect {
-	Named(Rc<str>),
-}
-
-#[derive(Debug, Clone)]
-pub struct Parameter(pub Rc<str>, pub Type);
-
-#[derive(Debug, Clone)]
-pub enum Type {
-	Named(Rc<str>),
-	Tuple(Box<[Type]>),
-	Function(Box<[Type]>, Box<Type>),
-}
-
-#[derive(Debug)]
 pub enum ParseError {
-	UnexpectedToken(Token, ExpectedMessage),
-	UnexpectedEndOfInput,
-	AmbiguousOperatorOrder(Expr),
-	IllegalExpressionTerm(&'static str),
+	UnexpectedToken(Token, &'static str),
+	UnexpectedEndOfInput(&'static str),
+	AmbiguousOperatorOrder(SourceSpan),
+	IllegalExpressionTerm(SourceSpan),
+	IllegalPatternTerm(SourceSpan),
 }
 
-#[derive(Debug)]
-pub enum ExpectedMessage {
-	Text(&'static str),
-	Kind(TokenKind),
+#[derive(Debug, Clone)]
+enum AssignPatternOrExpr {
+	Expr(Expr),
+	Pattern(AssignPattern),
+	Named(SourceSpan, Rc<str>),
+	Grouped(SourceSpan, Box<[AssignPatternOrExpr]>),
 }
 
 impl Error for ParseError {}
 
 impl Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "Parser Error")
-    }
+	}
 }
 
-fn take<'a, I, F, U>(tokens: &mut Peekable<I>, selector: F) -> Result<U, ParseError>
+fn take<'a, I, F, U>(tokens: &mut Peekable<I>, selector: F, message: &'static str) -> Result<U, ParseError>
 where I: Iterator<Item = &'a Token>, F: Fn (&&Token) -> Result<U, ParseError> {
-	let tok = tokens.peek().ok_or(ParseError::UnexpectedEndOfInput)?;
+	let tok = tokens.peek().ok_or(ParseError::UnexpectedEndOfInput(message))?;
 	let ret = selector(tok)?;
 	tokens.next();
 	return Ok(ret);
 }
 
-fn take_kind<'a, I>(tokens: &mut Peekable<I>, kind: TokenKind) -> Result<Token, ParseError>
+fn take_kind<'a, I>(tokens: &mut Peekable<I>, kind: TokenKind, message: &'static str) -> Result<Token, ParseError>
 where I: Iterator<Item = &'a Token> {
-	return take(tokens, |t| if t.kind == kind { Ok(t.clone().clone()) } else { Err(ParseError::UnexpectedToken(t.clone().clone(), ExpectedMessage::Kind(kind.clone()))) });
+	return take(tokens, |t| if t.kind == kind { Ok(t.clone().clone()) } else { Err(ParseError::UnexpectedToken(t.clone().clone(), message)) }, message);
 }
 
 fn parse_effect<'a, I>(tokens: &mut Peekable<I>) -> Result<Effect, ParseError>
 where I: Iterator<Item = &'a Token> {
 	Ok(match tokens.next() {
-		Some(Token {kind: TokenKind::Identifier(name), offset: _})
-			=> Effect::Named(name.clone()),
-		Some(tok) => return Err(ParseError::UnexpectedToken(tok.clone(), ExpectedMessage::Text("effect"))),
-		None => return Err(ParseError::UnexpectedEndOfInput),
+		Some(Token {kind: TokenKind::Identifier(name), span})
+			=> Effect{span: span.clone(), val: EffectKind::Named(name.clone())},
+		Some(tok) => return Err(ParseError::UnexpectedToken(tok.clone(), "effect")),
+		None => return Err(ParseError::UnexpectedEndOfInput("effect")),
 	})
 }
 
 fn parse_type<'a, I>(tokens: &mut Peekable<I>) -> Result<Type, ParseError>
 where I: Iterator<Item = &'a Token> {
 	Ok(match tokens.next() {
-		Some(Token {kind: TokenKind::Identifier(name), offset: _})
-			=> Type::Named(name.clone()),
-		Some(Token {kind: TokenKind::LParen, offset: _}) => {
+		Some(Token {kind: TokenKind::Identifier(name), span}) => Type{span: span.clone(), val: TypeKind::Named(name.clone())},
+		Some(Token {kind: TokenKind::Keyword(Keyword::Hole), span}) => Type{span: span.clone(), val: TypeKind::Hole},
+		Some(Token {kind: TokenKind::Bang, span}) => Type{span: span.clone(), val: TypeKind::Never},
+		Some(Token {kind: TokenKind::LParen, span}) => {
 			let mut params = Vec::new();
-			// end early if we immediately hit an RParen
-			if take_kind(tokens, TokenKind::RParen).is_err() {
+			let end_span = if let Ok(Token {span: n_span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+				// return unit type if we immediately hit an RParen
+				return Ok(Type{span: span.extend(&n_span).unwrap(), val: TypeKind::Unit});
+			} else {
+				let end_span;
 				loop {
 					params.push(parse_type(tokens)?);
-					if take_kind(tokens, TokenKind::RParen).is_ok() {
+					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma)?;
+					take_kind(tokens, TokenKind::Comma, "`,`")?;
 				}
-			}
-			return Ok(Type::Tuple(params.into()));
+				end_span.clone()
+			};
+			return Ok(Type{span: span.extend(&end_span).unwrap(), val: TypeKind::Tuple(params.into())});
 		},
-		Some(Token {kind: TokenKind::Keyword(Keyword::Function), offset: _}) => {
+		Some(Token {kind: TokenKind::Keyword(Keyword::Function), span}) => {
 			// function pointer
 			// grab LParen
-			take_kind(tokens, TokenKind::LParen)?;
+			take_kind(tokens, TokenKind::LParen, "`(`")?;
 			let mut params = Vec::new();
-			// end early if we immediately hit an RParen
-			if take_kind(tokens, TokenKind::RParen).is_err() {
+			let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+				// end early if we immediately hit an RParen
+				span
+			} else {
+				let end_span;
 				loop {
 					params.push(parse_type(tokens)?);
-					if take_kind(tokens, TokenKind::RParen).is_ok() {
+					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma)?;
+					take_kind(tokens, TokenKind::Comma, "`,`")?;
 				}
-			}
+				end_span.clone()
+			};
 			let ret_type = parse_typetag(tokens)?;
-			return Ok(Type::Function(params.into(), ret_type.into()));
+			return Ok(Type { span: span.extend(&end_span).unwrap(), val: TypeKind::Function(params.into(), ret_type.into())});
 		},
-		Some(tok) => return Err(ParseError::UnexpectedToken(tok.clone(), ExpectedMessage::Text("type"))),
-		None => return Err(ParseError::UnexpectedEndOfInput),
+		Some(tok) => return Err(ParseError::UnexpectedToken(tok.clone(), "type")),
+		None => return Err(ParseError::UnexpectedEndOfInput("type")),
 	})
 }
 
 fn parse_typetag<'a, I>(tokens: &mut Peekable<I>) -> Result<Type, ParseError>
 where I: Iterator<Item = &'a Token> {
-	take_kind(tokens, TokenKind::Colon)?;
+	take_kind(tokens, TokenKind::Colon, "Expected `:`")?;
 	return parse_type(tokens);
 }
 
-fn parse_return<'a, I>(tokens: &mut Peekable<I>) -> Result<ReturnExpr, ParseError>
+fn parse_return<'a, I>(tokens: &mut Peekable<I>) -> Result<Stmt, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let kw = tokens.next().unwrap();
 	let expr = parse_expr(tokens)?;
-	Ok(ReturnExpr(kw.clone(), Box::new(expr)))
+	Ok(Stmt {span: kw.span.extend(&expr.span).unwrap(), val: StmtKind::Return(expr)})
 }
 
-fn parse_pattern<'a, I>(tokens: &mut Peekable<I>) -> Result<Pattern, ParseError>
+fn parse_let_pattern<'a, I>(tokens: &mut Peekable<I>) -> Result<LetPattern, ParseError>
 where I: Iterator<Item = &'a Token> {
 	match tokens.next() {
-		Some(Token { kind: TokenKind::Keyword(Keyword::Mutable), offset: _ }) => {
+		Some(Token { kind: TokenKind::Keyword(Keyword::Mutable), span: start_span }) => {
 			match tokens.next() {
-				Some(Token { kind: TokenKind::Identifier(n), offset: _}) => {
+				Some(Token { kind: TokenKind::Identifier(n), span: end_span}) => {
 					let type_ = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
 						Some(parse_typetag(tokens)?)
 					} else {
 						None
 					};
-					Ok(Pattern::Named(Mutability::Mutable, n.clone(), type_))
+					Ok(LetPattern {span: start_span.extend(end_span).unwrap(), val: LetPatternKind::Named(Mutability::Mutable, n.clone(), type_)})
 				},
-				Some(t) => Err(ParseError::UnexpectedToken(t.clone(), ExpectedMessage::Text("pattern name"))),
-				None => Err(ParseError::UnexpectedEndOfInput),
+				Some(t) => Err(ParseError::UnexpectedToken(t.clone(), "Expected pattern name")),
+				None => Err(ParseError::UnexpectedEndOfInput("pattern name")),
 			}
 		},
-		Some(Token { kind: TokenKind::LParen, offset: _}) => {
+		Some(Token { kind: TokenKind::LParen, span: start_span}) => {
 			let mut params = Vec::new();
-			// end early if we immediately hit an RParen
-			if take_kind(tokens, TokenKind::RParen).is_err() {
+			let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+				// end early if we immediately hit an RParen
+				span
+			} else {
+				let end_span;
 				loop {
-					params.push(parse_pattern(tokens)?);
-					if take_kind(tokens, TokenKind::RParen).is_ok() {
+					params.push(parse_let_pattern(tokens)?);
+					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma)?;
+					take_kind(tokens, TokenKind::Comma, "`,`")?;
 				}
-			}
-			return Ok(Pattern::Tuple(params.into()));
-		},
-		Some(Token { kind: TokenKind::Identifier(n), offset: _}) => {
-			let type_ = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
-				Some(parse_typetag(tokens)?)
-			} else {
-				None
+				end_span
 			};
-			Ok(Pattern::Named(Mutability::Immutable, n.clone(), type_))
+			return Ok(LetPattern {span: start_span.extend(&end_span).unwrap(), val: LetPatternKind::Tuple(params.into())});
 		},
-		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), offset: _}) => Ok(Pattern::Hole),
-		Some(t) => Err(ParseError::UnexpectedToken(t.clone(), ExpectedMessage::Text("pattern"))),
-		None => Err(ParseError::UnexpectedEndOfInput),
+		Some(Token { kind: TokenKind::Identifier(n), span}) => {
+			let (type_, span) = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
+				let type_ = parse_typetag(tokens)?;
+				let span = span.extend(&type_.span).unwrap();
+
+				(Some(type_), span)
+			} else {
+				(None, span.clone())
+			};
+			Ok(LetPattern {span, val: LetPatternKind::Named(Mutability::Immutable, n.clone(), type_)})
+		},
+		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), span}) =>
+		{
+			let (type_, span) = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
+				let type_ = parse_typetag(tokens)?;
+
+				let span = span.extend(&type_.span).unwrap();
+
+				(Some(type_), span)
+			} else {
+				(None, span.clone())
+			};
+			Ok(LetPattern {span, val: LetPatternKind::Hole(type_)})
+		},
+		Some(t) => Err(ParseError::UnexpectedToken(t.clone(), "pattern")),
+		None => Err(ParseError::UnexpectedEndOfInput("pattern")),
 	}
 }
 
-fn parse_if<'a, I>(tokens: &mut Peekable<I>) -> Result<IfExpr, ParseError>
+fn parse_if<'a, I>(tokens: &mut Peekable<I>) -> Result<(SourceSpan, If), ParseError>
 where I: Iterator<Item = &'a Token> {
 	let kw = tokens.next().unwrap();
 	let cond = parse_expr(tokens)?;
-	let body = parse_block_expr(tokens)?;
+	let (span, body) = parse_scope_block(tokens)?;
 	// else / elif block?
-	let else_ = match tokens.peek() {
-		Some(Token {kind: TokenKind::Keyword(Keyword::Else), offset: _}) => { tokens.next(); Some(Box::new(Expr::Block(parse_block_expr(tokens)?))) },
-		Some(Token {kind: TokenKind::Keyword(Keyword::Elif), offset: _}) => { Some(Box::new(Expr::If(parse_if(tokens)?))) },
-		_ => None,
+	let (span, _else) = match tokens.peek() {
+		Some(Token {kind: TokenKind::Keyword(Keyword::Else), ..}) =>
+		{ tokens.next(); let (span, scope) = parse_scope_block(tokens)?; (span.clone(), Some(Expr {span, val: ExprKind::Scope(scope)}.into())) },
+		Some(Token {kind: TokenKind::Keyword(Keyword::Elif), ..}) =>
+		{ let (span, _if) = parse_if(tokens)?; (span.clone(), Some(Expr {span, val: ExprKind::If(_if)}.into())) },
+		_ => (span, None),
 	};
 
-	return Ok(IfExpr { kw: kw.clone(), condition: cond.into(), body, else_ });
+	return Ok((kw.span.extend(&span).unwrap(), If {condition: cond.into(), body, _else }));
 }
 
-fn parse_while<'a, I>(tokens: &mut Peekable<I>) -> Result<WhileExpr, ParseError>
+fn parse_while<'a, I>(tokens: &mut Peekable<I>) -> Result<(SourceSpan, While), ParseError>
 where I: Iterator<Item = &'a Token> {
 	let kw = tokens.next().unwrap();
 	let cond = parse_expr(tokens)?;
-	let body = parse_block_expr(tokens)?;
-	return Ok(WhileExpr { kw: kw.clone(), condition: cond.into(), body });
+	let (end, body) = parse_scope_block(tokens)?;
+	return Ok((kw.span.extend(&end).unwrap(), While {condition: cond.into(), body} ));
 }
 
-fn parse_let<'a, I>(tokens: &mut Peekable<I>) -> Result<LetExpr, ParseError>
+fn parse_let<'a, I>(tokens: &mut Peekable<I>) -> Result<Stmt, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let kw = tokens.next().unwrap();
-	let pattern = parse_pattern(tokens)?;
-	take_kind(tokens, TokenKind::Assign)?;
+	let pattern = parse_let_pattern(tokens)?;
+	take_kind(tokens, TokenKind::Assign, "Expected `=`")?;
 	let expr = parse_expr(tokens)?;
-	Ok(LetExpr { kw: kw.clone(), target: pattern, value: expr.into() })
+	Ok(Stmt { span: kw.span.extend(&expr.span).unwrap(), val: StmtKind::Let(pattern, expr) })
 }
 
-fn parse_block_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<BlockExpr, ParseError>
+fn parse_scope_block<'a, I>(tokens: &mut Peekable<I>) -> Result<(SourceSpan, Scope), ParseError>
 where I: Iterator<Item = &'a Token> {
-	take_kind(tokens, TokenKind::LCurly)?;
+	let start = take_kind(tokens, TokenKind::LCurly, "Expected `{`")?.span;
 	// function bodies can first have as many child / helper functions as they want
-	let body = if take_kind(tokens, TokenKind::RCurly).is_ok() {
+	let (body, end) = if let Ok(Token{span, ..}) = take_kind(tokens, TokenKind::RCurly, "Expected `}`") {
 		// implied Unit expression
-		Box::new([Expr::Unit])
+		(Scope {body: Box::new([]), value: None}, span)
 	} else {
-		let body = parse_stmt_list(tokens)?;
-		take_kind(tokens, TokenKind::RCurly)?;
-		body
+		let body = parse_scope(tokens)?;
+		let span = take_kind(tokens, TokenKind::RCurly, "Expected `}`")?.span;
+		(body, span)
 	};
-	return Ok(BlockExpr(body));
+	return Ok((start.extend(&end).unwrap(), body));
 }
 
-fn parse_atom_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_atom_expr_or_pattern<'a, I>(tokens: &mut Peekable<I>) -> Result<AssignPatternOrExpr, ParseError>
 where I: Iterator<Item = &'a Token> {
-	let tok = tokens.peek().ok_or(ParseError::UnexpectedEndOfInput)?.clone().clone();
+	use AssignPatternOrExpr as AP;
+	let tok = tokens.peek().ok_or(ParseError::UnexpectedEndOfInput("expression"))?.clone().clone();
 	Ok(match tok.kind.clone() {
-		TokenKind::Keyword(Keyword::Hole) => { tokens.next(); Expr::Hole },
-		TokenKind::Integer(val) => { tokens.next(); Expr::Integer(IntExpr(tok, val)) },
-		TokenKind::Keyword(Keyword::True) => { tokens.next(); Expr::Boolean(true) },
-		TokenKind::Keyword(Keyword::False) => { tokens.next(); Expr::Boolean(false) },
-		TokenKind::Keyword(Keyword::Return) => Expr::Return(parse_return(tokens)?),
-		TokenKind::Keyword(Keyword::If) => Expr::If(parse_if(tokens)?),
-		TokenKind::Keyword(Keyword::While) => Expr::While(parse_while(tokens)?),
-		TokenKind::Identifier(name) => { tokens.next(); Expr::Lookup(LookupExpr(tok.clone(), name)) },
-		TokenKind::LCurly => { Expr::Block(parse_block_expr(tokens)?) },
+		TokenKind::Keyword(Keyword::Hole) => {
+			let span = tokens.next().unwrap().span.clone();
+			AP::Pattern(AssignPattern {span, val: AssignPatternKind::Hole})
+		},
+		TokenKind::Integer(val) => {
+			let span = tokens.next().unwrap().span.clone();
+			AP::Expr(Expr {span, val: ExprKind::Integer(val)})
+		},
+		TokenKind::Keyword(Keyword::True) => {
+			let span = tokens.next().unwrap().span.clone();
+			AP::Expr(Expr {span, val: ExprKind::Boolean(true)})
+		},
+		TokenKind::Keyword(Keyword::False) => {
+			let span = tokens.next().unwrap().span.clone();
+			AP::Expr(Expr {span, val: ExprKind::Boolean(false)})
+		},
+		TokenKind::Keyword(Keyword::If) => {
+			let (span, _if) = parse_if(tokens)?;
+			AP::Expr(Expr {span, val: ExprKind::If(_if)})
+		},
+		TokenKind::Keyword(Keyword::While) => {
+			let (span, _while) = parse_while(tokens)?;
+			AP::Expr(Expr {span, val: ExprKind::While(_while)})
+		},
+		TokenKind::Identifier(name) => {
+			let span = tokens.next().unwrap().span.clone();
+			AP::Named(span, name)
+		},
+		TokenKind::LCurly => {
+			let (span, scope) = parse_scope_block(tokens)?;
+			AP::Expr(Expr {span, val: ExprKind::Scope(scope)})
+		},
 		TokenKind::LParen => {
 			// unit / parenthesized / tuple
-			tokens.next();
+			let span = tokens.next().unwrap().span.clone();
 			let mut args = Vec::new();
 			// does this call have args?
-			if take_kind(tokens, TokenKind::RParen).is_err() {
+			let end_span = if let Ok(Token {span, .. }) = take_kind(tokens, TokenKind::RParen, "`)`") {
+				span
+			} else {
 				loop {
 					args.push(parse_pattern_or_expr(tokens)?);
-					if take_kind(tokens, TokenKind::Comma).is_err() {
+					if take_kind(tokens, TokenKind::Comma, "`,`").is_err() {
 						// we need to have an rparen here now
-						take_kind(tokens, TokenKind::RParen)?;
-						break;
+						break take_kind(tokens, TokenKind::RParen, "`)`")?.span;
 					}
 				}
-			}
-			match &args[..] {
-				[] => Expr::Unit,
-				[expr] => expr.clone(),
-				_ => Expr::Tuple(args.into()),
-			}
+			};
+			AP::Grouped(span.extend(&end_span).unwrap(), args.into())
 		},
-		_ => return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Text("atom_expr"))),
+		_ => return Err(ParseError::UnexpectedToken(tok.clone().clone(), "expression")),
 	})
 }
 
-fn parse_suffix_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_suffix_expr_or_pattern<'a, I>(tokens: &mut Peekable<I>) -> Result<AssignPatternOrExpr, ParseError>
 where I: Iterator<Item = &'a Token> {
+	use AssignPatternOrExpr as AP;
 	// parse core item
-	let mut core = parse_atom_expr(tokens)?;
+	let mut core = parse_atom_expr_or_pattern(tokens)?;
 
 	// parse suffixes
 	loop {
 		let tok = tokens.peek();
-		match tok {
+		let tok = match tok {
 			None => break,
-			Some(tok) => {
-				match tok.kind {
-					TokenKind::Bang => {
-						tokens.next();
-						core = Expr::PostOp(PostExpr(PostfixOp::Yell, Box::new(core)));
-					}
-					TokenKind::Question => {
-						tokens.next();
-						core = Expr::PostOp(PostExpr(PostfixOp::Query, Box::new(core)));
-					}
-					TokenKind::LParen => {
-						// call
-						tokens.next();
-						let mut args = Vec::new();
-						// does this call have args?
-						if take_kind(tokens, TokenKind::RParen).is_err() {
-							loop {
-								args.push(parse_pattern_or_expr(tokens)?);
-								if take_kind(tokens, TokenKind::Comma).is_err() {
-									// we need to have an rparen here now
-									take_kind(tokens, TokenKind::RParen)?;
-									break;
-								}
-							}
+			Some(t) => t.clone(),
+		};
+		match tok.kind {
+			TokenKind::Bang => {
+				tokens.next();
+				let expr = rewrite_to_expr(&core)?;
+				core = AP::Expr(Expr { span: expr.span.extend(&tok.span).unwrap(), val: ExprKind::Suffix(expr.into(), SuffixOp {span: tok.span.clone(), val: Suffix::Yell }) });
+			}
+			TokenKind::Question => {
+				tokens.next();
+				let expr = rewrite_to_expr(&core)?;
+				core = AP::Expr(Expr { span: expr.span.extend(&tok.span).unwrap(), val: ExprKind::Suffix(expr.into(), SuffixOp {span: tok.span.clone(), val: Suffix::Query }) });
+			}
+			TokenKind::LParen => {
+				// call
+				tokens.next();
+				let mut args = Vec::new();
+				let expr = rewrite_to_expr(&core)?;
+				// does this call have args?
+				let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen, "`)`") {
+					span
+				} else {
+					loop {
+						args.push(parse_expr(tokens)?);
+						if take_kind(tokens, TokenKind::Comma, "`,`").is_err() {
+							// we need to have an rparen here now
+							break take_kind(tokens, TokenKind::RParen, "`)`")?.span;
 						}
-						core = Expr::Call(CallExpr(Box::new(core), args.into()));
-					},
-					_ => break,
-				}
+					}
+				};
+				core = AP::Expr(Expr {span: expr.span.extend(&end_span).unwrap(), val: ExprKind::Call(Box::new(expr), args.into())});
 			},
+			_ => break,
 		}
 	}
 	Ok(core)
 }
 
-fn parse_prefix_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_prefix_expr_or_pattern<'a, I>(tokens: &mut Peekable<I>) -> Result<AssignPatternOrExpr, ParseError>
 where I: Iterator<Item = &'a Token> {
 	// parse prefixes onto a stack
 	let mut prefix_stack = Vec::new();
@@ -451,127 +355,78 @@ where I: Iterator<Item = &'a Token> {
 			None => break,
 			Some(tok) => {
 				match tok.kind {
-					TokenKind::Plus => PrefixOp::Identity,
-					TokenKind::Minus => PrefixOp::Negative,
-					TokenKind::Bang => PrefixOp::Not,
+					TokenKind::Plus => Prefix::Identity,
+					TokenKind::Minus => Prefix::Negate,
+					TokenKind::Bang => Prefix::Not,
 
-					TokenKind::Star => PrefixOp::Dereference,
-					TokenKind::And => PrefixOp::Reference,
+					TokenKind::Star => Prefix::Dereference,
+					TokenKind::And => Prefix::Reference,
 					TokenKind::AndAnd => {
-						prefix_stack.push(PrefixOp::Reference);
-						PrefixOp::Reference
+						prefix_stack.push(PrefixOp {span: tok.span.clone(), val: Prefix::Reference});
+						Prefix::Reference
 					},
 					_ => break,
 				}
 			},
 		};
-		prefix_stack.push(prefix);
+		prefix_stack.push(PrefixOp {span: tok.unwrap().span.clone(), val: prefix});
 		tokens.next();
 	}
 
 	// parse core item
-	let mut core = parse_suffix_expr(tokens)?;
+	let mut core = parse_suffix_expr_or_pattern(tokens)?;
 
 	// apply prefixes
 	while let Some(prefix) = prefix_stack.pop() {
-		core = Expr::PreOp(PreExpr(prefix, Box::new(core)));
+		let expr = rewrite_to_expr(&core)?;
+		core = AssignPatternOrExpr::Expr(Expr {span: expr.span.extend(&prefix.span).unwrap(), val: ExprKind::Prefix(prefix, expr.into())});
 	}
 
 	Ok(core)
 }
 
-fn parse_bin_exprs<'a, I>(tokens: &mut Peekable<I>) -> Result<(Expr, Box<[(InfixOp, Expr)]>), ParseError>
+fn parse_bin_exprs_or_patterns<'a, I>(tokens: &mut Peekable<I>) -> Result<(AssignPatternOrExpr, Box<[(InfixOp, Expr)]>), ParseError>
 where I: Iterator<Item = &'a Token> {
-	let leftmost = parse_prefix_expr(tokens)?;
+	let leftmost = parse_prefix_expr_or_pattern(tokens)?;
 	let mut right = Vec::new();
 	// parse infixes
 	loop {
 		let tok = tokens.peek();
-		match tok {
+		let tok = match tok {
 			None => break,
-			Some(tok) => {
-				match tok.kind {
-					// math
-					TokenKind::Plus => {
-						tokens.next();
-						right.push((InfixOp::Add, parse_prefix_expr(tokens)?))
-					}
-					TokenKind::Minus => {
-						tokens.next();
-						right.push((InfixOp::Sub, parse_prefix_expr(tokens)?))
-					}
-					TokenKind::Star => {
-						tokens.next();
-						right.push((InfixOp::Mult, parse_prefix_expr(tokens)?))
-					}
-					TokenKind::Slash => {
-						tokens.next();
-						right.push((InfixOp::Div, parse_prefix_expr(tokens)?))
-					}
-					TokenKind::Percent => {
-						tokens.next();
-						right.push((InfixOp::Mod, parse_prefix_expr(tokens)?))
-					},
-					// comparisons
-					TokenKind::EqEq => {
-						tokens.next();
-						right.push((InfixOp::Equal, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::BangEq => {
-						tokens.next();
-						right.push((InfixOp::NotEqual, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::Greater => {
-						tokens.next();
-						right.push((InfixOp::Greater, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::GreaterEq => {
-						tokens.next();
-						right.push((InfixOp::GreaterEqual, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::Lesser => {
-						tokens.next();
-						right.push((InfixOp::Lesser, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::LesserEq => {
-						tokens.next();
-						right.push((InfixOp::LesserEqual, parse_prefix_expr(tokens)?))
-					},
-					// bitshifts
-					TokenKind::GreaterGreater => {
-						tokens.next();
-						right.push((InfixOp::ShiftRight, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::LesserLesser => {
-						tokens.next();
-						right.push((InfixOp::ShiftLeft, parse_prefix_expr(tokens)?))
-					},
-					// bitwise logic
-					TokenKind::Pipe => {
-						tokens.next();
-						right.push((InfixOp::BitOr, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::Caret => {
-						tokens.next();
-						right.push((InfixOp::BitXor, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::And => {
-						tokens.next();
-						right.push((InfixOp::BitAnd, parse_prefix_expr(tokens)?))
-					},
-					// short-circuit logic
-					TokenKind::PipePipe => {
-						tokens.next();
-						right.push((InfixOp::LogOr, parse_prefix_expr(tokens)?))
-					},
-					TokenKind::AndAnd => {
-						tokens.next();
-						right.push((InfixOp::LogAnd, parse_prefix_expr(tokens)?))
-					},
-					_ => break,
-				}
-			},
-		}
+			Some(t) => t.clone(),
+		};
+		let infix = match tok.kind {
+			// math
+			TokenKind::Plus => Infix::Add,
+			TokenKind::Minus => Infix::Subtract,
+			TokenKind::Star => Infix::Multiply,
+			TokenKind::Slash => Infix::Divide,
+			TokenKind::Percent => Infix::Modulo,
+			// comparisons
+			TokenKind::EqEq => Infix::Equal,
+			TokenKind::BangEq => Infix::NotEqual,
+			TokenKind::Greater => Infix::GreaterThan,
+			TokenKind::GreaterEq => Infix::GreaterThanEqual,
+			TokenKind::Lesser => Infix::LessThan,
+			TokenKind::LesserEq => Infix::LessThanEqual,
+			// bitshifts
+			TokenKind::GreaterGreater => Infix::ShiftRight,
+			TokenKind::LesserLesser => Infix::ShiftLeft,
+			// bitwise logic
+			TokenKind::Pipe => Infix::BitOr,
+			TokenKind::Caret => Infix::BitXor,
+			TokenKind::And => Infix::BitAnd,
+			// short-circuit logic
+			TokenKind::PipePipe => Infix::LogicOr,
+			TokenKind::AndAnd => Infix::LogicAnd,
+			_ => break,
+		};
+		tokens.next();
+		let rhs = parse_prefix_expr_or_pattern(tokens)?;
+		let rhs = rewrite_to_expr(&rhs)?;
+		let op = InfixOp {span: tok.span.clone(), val: infix};
+		right.push((op, rhs))
 	}
 
 	Ok((leftmost, right.into()))
@@ -591,24 +446,24 @@ enum Precedence {
 	Multiplicative,
 }
 
-fn get_precedence(infix: &InfixOp) -> Precedence {
-	use InfixOp as I;
+fn get_precedence(infix: &Infix) -> Precedence {
+	use Infix as I;
 	use Precedence as P;
 	match infix {
-		I::LogOr  => P::LogicOr,
-		I::LogAnd => P::LogicAnd,
+		I::LogicOr  => P::LogicOr,
+		I::LogicAnd => P::LogicAnd,
 		I::Equal
-		| I::NotEqual
-		| I::Lesser
-		| I::Greater
-		| I::LesserEqual
-		| I::GreaterEqual => P::Comparison,
+			| I::NotEqual
+			| I::LessThan
+			| I::GreaterThan
+			| I::LessThanEqual
+			| I::GreaterThanEqual => P::Comparison,
 		I::BitOr  => P::BitOr,
 		I::BitXor => P::BitXor,
 		I::BitAnd => P::BitAnd,
 		I::ShiftLeft | I::ShiftRight => P::BitShift,
-		I::Add | I::Sub => P::Additive,
-		I::Mult | I::Div | I::Mod => P::Multiplicative,
+		I::Add | I::Subtract => P::Additive,
+		I::Multiply | I::Divide | I::Modulo => P::Multiplicative,
 	}
 }
 
@@ -618,47 +473,52 @@ enum Associativity {
 	Explicit,
 }
 
-fn get_associavity(infix: &InfixOp) -> Associativity {
-	use InfixOp as I;
+fn get_associavity(infix: &Infix) -> Associativity {
+	use Infix as I;
 	use Associativity as A;
 	match infix {
-		I::LogOr  => A::Left,
-		I::LogAnd => A::Left,
+		I::LogicOr  => A::Left,
+		I::LogicAnd => A::Left,
 		I::Equal
-		| I::NotEqual
-		| I::Lesser
-		| I::Greater
-		| I::LesserEqual
-		| I::GreaterEqual => A::Explicit,
+			| I::NotEqual
+			| I::LessThan
+			| I::GreaterThan
+			| I::LessThanEqual
+			| I::GreaterThanEqual => A::Explicit,
 		I::BitOr  => A::Left,
 		I::BitXor => A::Left,
 		I::BitAnd => A::Left,
 		I::ShiftLeft | I::ShiftRight => A::Left,
-		I::Add | I::Sub => A::Left,
-		I::Mult | I::Div | I::Mod => A::Left,
+		I::Add | I::Subtract => A::Left,
+		I::Multiply | I::Divide | I::Modulo => A::Left,
 	}
 }
 
-fn parse_bin_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_bin_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<AssignPatternOrExpr, ParseError>
 where I: Iterator<Item = &'a Token> {
-	let bins = parse_bin_exprs(tokens)?;
+	let (lhs, bins) = parse_bin_exprs_or_patterns(tokens)?;
+	if bins.len() == 0 {
+		return Ok(lhs);
+	}
+
+	let lhs = rewrite_to_expr(&lhs)?;
 
 	let mut working_stack = Vec::new();
-	working_stack.push(bins.0);
+	working_stack.push(lhs);
 
-	let mut operator_stack = Vec::new();
-	for pair in bins.1.into_iter() {
-		let prec = get_precedence(&pair.0);
-		let assoc = get_associavity(&pair.0);
+	let mut operator_stack: Vec<InfixOp> = Vec::new();
+	for pair in bins.into_iter() {
+		let prec = get_precedence(&pair.0.val);
+		let assoc = get_associavity(&pair.0.val);
 		while {
 			if let Some(op) = operator_stack.last() {
-				let prec2 = get_precedence(&op);
+				let prec2 = get_precedence(&op.val);
 				match prec2.cmp(&prec) {
 					Ordering::Less => false,
 					Ordering::Equal => match assoc {
 						Associativity::Left => true,
 						Associativity::Right => false,
-						Associativity::Explicit => return Err(ParseError::AmbiguousOperatorOrder(pair.1.clone())),
+						Associativity::Explicit => return Err(ParseError::AmbiguousOperatorOrder(pair.0.span.clone())),
 					},
 					Ordering::Greater => true,
 				}
@@ -670,8 +530,7 @@ where I: Iterator<Item = &'a Token> {
 			let op = operator_stack.pop().unwrap();
 			let right = working_stack.pop().unwrap();
 			let left = working_stack.pop().unwrap();
-			let node = BinExpr(op, left.into(), right.into());
-			working_stack.push(Expr::BinOp(node));
+			working_stack.push(Expr {span: left.span.extend(&right.span).unwrap(), val: ExprKind::Infix(left.into(), op.clone(), right.into())});
 		}
 		operator_stack.push(pair.0.clone());
 		working_stack.push(pair.1.clone());
@@ -680,95 +539,71 @@ where I: Iterator<Item = &'a Token> {
 	while let Some(op) = operator_stack.pop() {
 		let right = working_stack.pop().unwrap();
 		let left = working_stack.pop().unwrap();
-		let node = BinExpr(op, left.into(), right.into());
-		working_stack.push(Expr::BinOp(node));
+		working_stack.push(Expr {span: left.span.extend(&right.span).unwrap(), val: ExprKind::Infix(left.into(), op.clone(), right.into())});
 	}
 
 	match &working_stack[..] {
-		[expr] => Ok(expr.clone()),
+		[expr] => Ok(AssignPatternOrExpr::Expr(expr.clone())),
 		_ => unreachable!("shunting yard should ensure the working stack has a length of 1 at the end"),
 	}
 }
 
-fn validate_expr(expr: &Expr) -> Result<(), ParseError> {
-	use Expr as E;
-	match expr {
-		E::Hole => Err(ParseError::IllegalExpressionTerm("Cannot use holes in expression")),
-		E::Unit | E::Integer(_) | E::Boolean(_) => Ok(()),
-		E::Lookup(_) => Ok(()),
-
-		E::Assign(_, rhs) => validate_expr(&rhs),
-		E::Tuple(exprs) => {
-			let vals: Result<Vec<_>, ParseError> = exprs.iter().map(|e| validate_expr(e)).collect();
-			vals?;
-			Ok(())
-		},
-		E::Call(CallExpr(base, exprs)) => {
-			validate_expr(base)?;
-			let vals: Result<Vec<_>, ParseError> = exprs.iter().map(|e| validate_expr(e)).collect();
-			vals?;
-			Ok(())
-		},
-		E::BinOp(BinExpr(_, lhs, rhs)) => {
-			validate_expr(lhs)?;
-			validate_expr(rhs)
-		},
-		E::PreOp(PreExpr(_, base)) => {
-			validate_expr(base)
-		},
-		E::PostOp(PostExpr(_, base)) => {
-			validate_expr(base)
-		},
-		// these should be fine
-		E::Block(_) => Ok(()),
-		E::Return(_) => Ok(()),
-		E::While(_) => Ok(()),
-		E::If(_) => Ok(()),
-		E::Let(_) => Ok(()),
-		E::Stmt(e) => validate_expr(e),
-	}
-}
-
-fn rewrite_to_pattern(expr: &Expr) -> Result<Pattern, ParseError> {
-	use Expr as E;
-	use Pattern as P;
-	match expr {
-		E::Lookup(LookupExpr(_, name)) => Ok(P::Named(Mutability::Mutable, name.clone(), None)),
-		E::Hole => Ok(P::Hole),
-		E::Tuple(exprs) => {
-			let pats: Result<Vec<_>, _> = exprs.iter().map(|e| rewrite_to_pattern(e)).collect();
-			Ok(P::Tuple(pats?.into()))
-		},
-		E::Unit | E::Boolean(_) | E::Integer(_) => Ok(P::Expression(Box::new(expr.clone()))),
-		E::BinOp(_) | E::PreOp(_) | E::PostOp(_) |
-		E::Assign(..) => Err(ParseError::IllegalExpressionTerm("no operators allowed in patterns")),
-		E::Return(_) => Err(ParseError::IllegalExpressionTerm("no returns allowed in patterns")),
-		E::If(_) => Err(ParseError::IllegalExpressionTerm("no ifs allowed in patterns")),
-		E::While(_) => Err(ParseError::IllegalExpressionTerm("no whiles allowed in patterns")),
-		E::Let(_) => Err(ParseError::IllegalExpressionTerm("no lets allowed in patterns")),
-		E::Stmt(_) => Err(ParseError::IllegalExpressionTerm("no statements allowed in patterns")),
-		E::Block(_) => todo!("block patterns"),
-		E::Call(_) => todo!("call patterns"),
-	}
-}
-
-fn parse_pattern_or_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_pattern_or_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<AssignPatternOrExpr, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let lhs = parse_bin_expr(tokens)?;
 
-	if take_kind(tokens, TokenKind::Assign).is_ok() {
+	if take_kind(tokens, TokenKind::Assign, "`=`").is_ok() {
 		let rhs = parse_expr(tokens)?;
-		validate_expr(&rhs)?;
-		return Ok(Expr::Assign(rewrite_to_pattern(&lhs)?, rhs.into()));
+		let lhs = rewrite_to_pattern(&lhs)?;
+		let span = lhs.span.extend(&rhs.span).unwrap();
+		return Ok(AssignPatternOrExpr::Expr(Expr{span, val: ExprKind::Assign(lhs, rhs.into())}));
 	}
 	return Ok(lhs);
+}
+
+fn rewrite_to_expr(potential_expr: &AssignPatternOrExpr) -> Result<Expr, ParseError> {
+	use AssignPatternOrExpr as AP;
+	match potential_expr {
+		AP::Expr(e) => Ok(e.clone()),
+		AP::Pattern(p) => Err(ParseError::IllegalExpressionTerm(p.span.clone())),
+		AP::Named(span, name) => Ok(Expr {span: span.clone(), val: ExprKind::Lookup(name.clone())}),
+		AP::Grouped(span, vals) => {
+			let mut exprs = Vec::new();
+			for val in vals.into_iter() {
+				exprs.push(rewrite_to_expr(val)?);
+			}
+
+			match exprs.len() {
+				0 => Ok(Expr {span: span.clone(), val: ExprKind::Unit}),
+				1 => Ok(exprs[0].clone()),
+				_ => Ok(Expr {span: span.clone(), val: ExprKind::Tuple(exprs.into()) }),
+			}
+		}
+	}
+}
+
+fn rewrite_to_pattern(potential_expr: &AssignPatternOrExpr) -> Result<AssignPattern, ParseError> {
+	use AssignPatternOrExpr as AP;
+	match potential_expr {
+		AP::Expr(e) => Err(ParseError::IllegalPatternTerm(e.span.clone())),
+		AP::Pattern(p) => Ok(p.clone()),
+		AP::Named(span, name) => Ok(AssignPattern {span: span.clone(), val: AssignPatternKind::Named(name.clone())}),
+		AP::Grouped(span, vals) => {
+			let mut pats = Vec::new();
+			for val in vals.into_iter() {
+				pats.push(rewrite_to_pattern(val)?);
+			}
+
+			Ok(AssignPattern {span: span.clone(), val: AssignPatternKind::Tuple(pats.into())})
+		}
+	}
 }
 
 fn parse_expr<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let lhs = parse_pattern_or_expr(tokens)?;
 
-	validate_expr(&lhs)?;
+	let lhs = rewrite_to_expr(&lhs)?;
 	return Ok(lhs);
 }
 
@@ -779,84 +614,80 @@ enum ExprAllowed {
 	EndOfBlock,
 }
 
-fn restrictions(expr: &Expr) -> ExprAllowed {
-	use Expr as E;
+fn restrictions(expr: &ExprKind) -> ExprAllowed {
+	use ExprKind as E;
 	use ExprAllowed as A;
 	match expr {
-		// this is only here for patterns
-		// but if it occurs we need to panic
-		E::Hole => panic!("hole somehow managed to pass through to the end"),
 		// literals at end of block only
 		E::Integer(_) | E::Boolean(_) | E::Tuple(_) | E::Unit => A::EndOfBlock,
 		// variable lookups at end of block only
 		E::Lookup(_) => A::EndOfBlock,
 		// operator expressions at end of block only
-		E::PostOp(_) | E::PreOp(_) | E::BinOp(_) => A::EndOfBlock,
+		E::Suffix(..) | E::Prefix(..) | E::Infix(..) => A::EndOfBlock,
 
 		// allowed with semicolon (or at end of block)
-		E::Call(_) | E::Return(_) | E::Let(_) | E::Assign(..) => A::Semicolon,
+		E::Call(..) | E::Assign(..) => A::Semicolon,
 
 		// blocks and block-requiring expressions are always allowed
-		E::Block(_) | E::If(_) | E::While(_) => A::Always,
-
-		// should not be reachable, but the compiler doesn't know that
-		E::Stmt(_) => unreachable!(),
+		E::Scope(_) | E::If(_) | E::While(_) => A::Always,
 	}
 }
 
-fn parse_stmt<'a, I>(tokens: &mut Peekable<I>) -> Result<Expr, ParseError>
+fn parse_stmt<'a, I>(tokens: &mut Peekable<I>) -> Result<Stmt, ParseError>
 where I: Iterator<Item = &'a Token> {
 	if tokens.peek().filter(|t| t.kind == TokenKind::Keyword(Keyword::Let)).is_some() {
 		// let
-		return Ok(Expr::Let(parse_let(tokens)?));
+		return Ok(parse_let(tokens)?);
+	} else if tokens.peek().filter(|t| t.kind == TokenKind::Keyword(Keyword::Return)).is_some() {
+		// let
+		return Ok(parse_return(tokens)?);
 	}
 	let expr = parse_expr(tokens)?;
-	return Ok(expr);
+	return Ok(Stmt{span: expr.span.clone(), val: StmtKind::Expr(expr)});
 }
 
-fn parse_stmt_list<'a, I>(tokens: &mut Peekable<I>) -> Result<Box<[Expr]>, ParseError>
+fn parse_scope<'a, I>(tokens: &mut Peekable<I>) -> Result<Scope, ParseError>
 where I: Iterator<Item = &'a Token> {
 	let mut list = Vec::new();
+	let mut value = None;
 
 	loop {
 		let stmt = parse_stmt(tokens)?;
-		let allowed = restrictions(&stmt);
-		if let Some(tok) = tokens.peek() {
-			match (allowed, tok) {
-				(ExprAllowed::Always, _) => {
-					// take as many semicolons as desired
-					if take_kind(tokens, TokenKind::SemiColon).is_ok() {
-						// grab all of the semicolons
-						while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
-						list.push(Expr::Stmt(Box::new(stmt)));
-					} else {
+		match stmt.val.clone() {
+			StmtKind::Expr(e) => {
+				// the olden way
+				let restriction = restrictions(&e.val);
+				match (restriction, tokens.peek()) {
+					(_, Some(Token { kind: TokenKind::RCurly, ..})) => {
+						// end of block
+						// put it as the value
+						value = Some(e.into());
+					},
+					(ExprAllowed::Semicolon, Some(Token { kind: TokenKind::SemiColon, ..})) => {
+						take_kind(tokens, TokenKind::SemiColon, "`;`")?;
+						while let Ok(_) = take_kind(tokens, TokenKind::SemiColon, "`;`") {}
 						list.push(stmt);
-					}
+					},
+					(ExprAllowed::Always, _) => {
+						// consume as many semicolons as possible
+						while let Ok(_) = take_kind(tokens, TokenKind::SemiColon, "`;`") {}
+						list.push(stmt);
+					},
+					(ExprAllowed::EndOfBlock, Some(t)) => {
+						return Err(ParseError::UnexpectedToken((*t).clone(), "`}`"));
+					},
+					(ExprAllowed::Semicolon, Some(t)) => {
+						return Err(ParseError::UnexpectedToken((*t).clone(), "`;` or `}`"));
+					},
+					(ExprAllowed::EndOfBlock, None) => return Err(ParseError::UnexpectedEndOfInput("`}`")),
+					(_, None) => return Err(ParseError::UnexpectedEndOfInput("`;` or `}`")),
 				}
-				(ExprAllowed::Semicolon, Token { kind: TokenKind::SemiColon, offset: _ }) => {
-					// grab all the semicolons
-					while take_kind(tokens, TokenKind::SemiColon).is_ok() {}
-					list.push(Expr::Stmt(Box::new(stmt)));
-				}
-				(ExprAllowed::Semicolon, Token { kind: TokenKind::RCurly, offset: _ }) => {
-					// end of block
-					list.push(stmt);
-				}
-				(ExprAllowed::Semicolon, _) => {
-					// expected a semicolon
-					return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Kind(TokenKind::SemiColon)));
-				}
-				(ExprAllowed::EndOfBlock, Token { kind: TokenKind::RCurly, offset: _ }) => {
-					// end of block
-					list.push(stmt);
-				}
-				(ExprAllowed::EndOfBlock, _) => {
-					// expected a rcurly
-					return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Kind(TokenKind::RCurly)));
-				}
-			}
-		} else {
-			return Err(ParseError::UnexpectedEndOfInput);
+			},
+			StmtKind::Return(_) | StmtKind::Let(..) => {
+				take_kind(tokens, TokenKind::SemiColon, "`;`")?;
+				while let Ok(_) = take_kind(tokens, TokenKind::SemiColon, "`;`") {}
+				list.push(stmt);
+			},
 		}
 		if tokens.peek().filter(|t| t.kind == TokenKind::RCurly).is_some() {
 			// end of block
@@ -864,12 +695,12 @@ where I: Iterator<Item = &'a Token> {
 		}
 	}
 
-	return Ok(list.into());
+	return Ok(Scope{body: list.into(), value});
 }
 
-fn parse_function_body<'a, I>(tokens: &mut Peekable<I>) -> Result<(Box<[Function]>, BlockExpr), ParseError>
+fn parse_function_body<'a, I>(tokens: &mut Peekable<I>) -> Result<(Box<[Function]>, Scope, SourceSpan), ParseError>
 where I: Iterator<Item = &'a Token> {
-	take_kind(tokens, TokenKind::LCurly)?;
+	take_kind(tokens, TokenKind::LCurly, "`}`")?;
 	// function bodies can first have as many child / helper functions as they want
 	let mut children = Vec::new();
 	while let Some(tok) = tokens.peek() {
@@ -879,29 +710,34 @@ where I: Iterator<Item = &'a Token> {
 			_ => break,
 		});
 	}
-	let body = if take_kind(tokens, TokenKind::RCurly).is_ok() {
-		// implied Unit expression
-		Box::new([Expr::Unit])
+	let (body, span) = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RCurly, "`}`") {
+		// empty body
+		(Scope {
+			body: Box::new([]),
+			value: None,
+		}, span)
 	} else {
-		let body = parse_stmt_list(tokens)?;
-		take_kind(tokens, TokenKind::RCurly)?;
-		body
+		let body = parse_scope(tokens)?;
+		let span = take_kind(tokens, TokenKind::RCurly, "`}`")?.span;
+		(body, span)
 	};
-	return Ok((children.into(), BlockExpr(body)));
+	return Ok((children.into(), body, span));
 }
 
-fn parse_param<'a, I>(tokens: &mut Peekable<I>) -> Result<Parameter, ParseError>
+fn parse_param<'a, I>(tokens: &mut Peekable<I>) -> Result<Param, ParseError>
 where I: Iterator<Item = &'a Token> {
-	let name = take(tokens, |t| {
-		if let Token {kind: TokenKind::Identifier(n), offset: _} = t {
-			Ok(n.clone())
-		} else {
-			Err(ParseError::UnexpectedToken(t.clone().clone(), ExpectedMessage::Text("parameter name")))
-		}
-	})?;
-
-	let type_ = parse_typetag(tokens)?;
-	Ok(Parameter(name, type_))
+	match tokens.next() {
+		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), span}) => {
+			let _type = parse_typetag(tokens)?;
+			Ok(Param { span: span.clone(), val: ParamKind::Ignored(_type)})
+		},
+		Some(Token { kind: TokenKind::Identifier(name), span}) => {
+			let _type = parse_typetag(tokens)?;
+			Ok(Param { span: span.clone(), val: ParamKind::Named(name.clone(), _type)})
+		},
+		Some(t) => Err(ParseError::UnexpectedToken(t.clone(), "parameter")),
+		None => Err(ParseError::UnexpectedEndOfInput("parameter")),
+	}
 }
 
 fn parse_function<'a, I>(tokens: &mut Peekable<I>) -> Result<Function, ParseError>
@@ -920,43 +756,45 @@ where I: Iterator<Item = &'a Token> {
 	}
 	// name
 	let name = take(tokens, |t| {
-		if let Token {kind: TokenKind::Identifier(n), offset: _} = t {
+		if let Token {kind: TokenKind::Identifier(n), ..} = t {
 			Ok(n.clone())
 		} else {
-			Err(ParseError::UnexpectedToken(t.clone().clone(), ExpectedMessage::Text("function name")))
+			Err(ParseError::UnexpectedToken(t.clone().clone(), "function name"))
 		}
-	})?;
+	}, "function name")?;
 	// parameters
 	let mut params = Vec::new();
-	take_kind(tokens, TokenKind::LParen)?;
+	take_kind(tokens, TokenKind::LParen, "`(`")?;
 
-	if take_kind(tokens, TokenKind::RParen).is_err() {
+	if take_kind(tokens, TokenKind::RParen, "`)`").is_err() {
 		loop {
 			params.push(parse_param(tokens)?);
-			if take_kind(tokens, TokenKind::RParen).is_ok() {
+			if take_kind(tokens, TokenKind::RParen, "`)`").is_ok() {
 				break;
 			}
-			take_kind(tokens, TokenKind::Comma)?;
+			take_kind(tokens, TokenKind::Comma, "`,`")?;
 		}
 	}
 	// end of params
 
-	let ret_type = parse_typetag(tokens)?;
+	let return_type = parse_typetag(tokens)?;
 
-	let (children, body) = parse_function_body(tokens)?;
-	return Ok(Function { kw, effects: effects.into(), name, params: params.into(), ret_type, children, body });
+	let (helpers, body, span) = parse_function_body(tokens)?;
+	return Ok(Function { span: kw.span.extend(&span).unwrap(), effects: effects.into(), name, params: params.into(), return_type, helpers, body });
 }
 
-pub fn parse(tokens: &[Token]) -> Result<ParseTree, ParseError> {
+pub fn parse(tokens: &[Token]) -> Result<AST, ParseError> {
 	let mut iter = tokens.iter().peekable();
-	let mut toplevel = Vec::new();
+	let mut functions = Vec::new();
 
 	while let Some(tok) = iter.peek() {
-		toplevel.push(match tok.kind {
-			TokenKind::Keyword(Keyword::Function)
-				=> TopLevelStmt::Function(parse_function(&mut iter)?),
-			_ => return Err(ParseError::UnexpectedToken(tok.clone().clone(), ExpectedMessage::Text("parse_top_level"))),
-		});
+		match tok.kind {
+			TokenKind::Keyword(Keyword::Function) => {
+				let func = parse_function(&mut iter)?;
+				functions.push(func);
+			}
+			_ => return Err(ParseError::UnexpectedToken(tok.clone().clone(), "`fn` keyword")),
+		}
 	}
-	return Ok(ParseTree { toplevel: toplevel.into() });
+	return Ok(AST { functions: functions.into() });
 }
