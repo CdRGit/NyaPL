@@ -83,7 +83,7 @@ pub enum TokenKind {
 
 #[derive(Debug)]
 pub enum LexError {
-	UnexpectedChar(char, usize),
+	UnexpectedChar(char, SourceSpan),
 }
 
 pub fn lex(path: Rc<str>, source_text: &str) -> Result<Box<[Token]>, LexError> {
@@ -248,7 +248,7 @@ pub fn lex(path: Rc<str>, source_text: &str) -> Result<Box<[Token]>, LexError> {
 					_ => TokenKind::Identifier(value.into()),
 				}
 			},
-			_ => return Err(LexError::UnexpectedChar(c, idx)),
+			_ => return Err(LexError::UnexpectedChar(c, SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx: e_idx, col, line}})),
 		};
 		e_idx = e_idx + 1;
 		vec.push(Token::new(SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx: e_idx, col, line}}, kind));
