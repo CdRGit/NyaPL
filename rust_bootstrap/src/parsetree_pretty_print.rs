@@ -1,7 +1,7 @@
 use crate::ast::{*};
 use std::io::{self, Write, Result as IOResult};
 
-pub fn print(tree: AST) {
+pub fn print(tree: &AST) {
 	let mut writer = io::stdout();
 	for func in tree.functions.into_iter() {
 		print_function(&mut writer, func, 0).unwrap();

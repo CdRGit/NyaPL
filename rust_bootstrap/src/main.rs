@@ -6,6 +6,9 @@ mod lexer;
 mod ast;
 mod parser;
 
+mod typed_tree;
+mod typechecker;
+
 mod parsetree_pretty_print;
 
 mod compiler;
