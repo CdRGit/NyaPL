@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::source_span::{SourceSpan, SourceLoc};
+use crate::{source_span::{SourceSpan, SourceLoc}, diagnostic::{Severity, Diagnostic}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Keyword {
@@ -81,12 +81,8 @@ pub enum TokenKind {
 	Percent,
 }
 
-#[derive(Debug)]
-pub enum LexError {
-	UnexpectedChar(char, SourceSpan),
-}
-
-pub fn lex(path: Rc<str>, source_text: &str) -> Result<Box<[Token]>, LexError> {
+pub fn lex(path: Rc<str>, source_text: &str) -> (Option<Box<[Token]>>, Box<[Diagnostic]>) {
+	let mut diagnostics = Vec::new();
 	let mut vec = Vec::new();
 	let mut iter = source_text.chars().enumerate().peekable();
 	let (mut line, mut col): (usize, usize) = (0, 0);
@@ -248,10 +244,26 @@ pub fn lex(path: Rc<str>, source_text: &str) -> Result<Box<[Token]>, LexError> {
 					_ => TokenKind::Identifier(value.into()),
 				}
 			},
-			_ => return Err(LexError::UnexpectedChar(c, SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx: e_idx, col, line}})),
+			c => {
+				let message = format!("Unexpected Character '{}'", c);
+				diagnostics.push(
+					Diagnostic(
+						SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx, col: s_col, line: s_line}},
+						Severity::Error,
+						message.into(),
+						Box::new([])
+					)
+				);
+				continue;
+			}
 		};
 		e_idx = e_idx + 1;
 		vec.push(Token::new(SourceSpan {path: path.clone(), start: SourceLoc {idx, col: s_col, line: s_line}, end: SourceLoc {idx: e_idx, col, line}}, kind));
 	}
-	return Ok(vec.into());
+	let any_errors = (&diagnostics).into_iter().any(|d| d.1 == Severity::Error);
+	if any_errors {
+		(None, diagnostics.into())
+	} else {
+		(Some(vec.into()), diagnostics.into())
+	}
 }
