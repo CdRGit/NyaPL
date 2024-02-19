@@ -17,9 +17,9 @@ enum AssignPatternOrExpr {
 	Grouped(SourceSpan, Box<[AssignPatternOrExpr]>),
 }
 
-struct ParseContext<'a, I> where I: Iterator<Item = &'a Token> {
+struct ParseContext<'a> {
 	pub diagnostics: Vec<Diagnostic>,
-	pub tokens: Peekable<I>,
+	pub tokens: &'a [Token],
 }
 
 fn take<'a, I, F, G, U>(tokens: &mut Peekable<I>, selector: F, diag_eof: G) -> Result<U, Diagnostic>

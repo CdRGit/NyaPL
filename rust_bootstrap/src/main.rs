@@ -33,6 +33,7 @@ fn print_diagnostics(diagnostics: Box<[Diagnostic]>) {
 		let message = &diag.2;
 		let location = format_location(&diag.0);
 		println!("{}\x1b[39m: {} \x1b[34mat\x1b[36m {}", header, message, location);
+		assert!(diag.3.len() == 0);
 	}
 }
 
