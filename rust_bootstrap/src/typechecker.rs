@@ -54,6 +54,7 @@ fn get_signature(named_types: &HashMap<String, Type>, prefix: &str, func: &Funct
 	let param_types = func.params.iter().map(|p| match &p.val {
 		ParamKind::Ignored(typ) => get_type(named_types, typ),
 		ParamKind::Named(_, typ) => get_type(named_types, typ),
+		ParamKind::Error => unreachable!(),
 	}).collect::<TypeResult<_>>()?;
 	let ret_type = get_type(named_types, &func.return_type)?;
 	Ok(Signature {name, param_types, ret_type})

@@ -5,7 +5,6 @@ use crate::source_span::SourceSpan;
 use crate::ast::{*};
 
 use std::rc::Rc;
-use std::iter::Peekable;
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone)]
@@ -18,53 +17,113 @@ enum AssignPatternOrExpr {
 }
 
 struct ParseContext<'a> {
-	pub diagnostics: Vec<Diagnostic>,
-	pub tokens: &'a [Token],
+	diagnostics: Vec<Diagnostic>,
+	tokens: &'a [Token],
+	offset: usize,
 }
 
-fn take<'a, I, F, G, U>(tokens: &mut Peekable<I>, selector: F, diag_eof: G) -> Result<U, Diagnostic>
-where I: Iterator<Item = &'a Token>, F: Fn (&&Token) -> Result<U, Diagnostic>, G: Fn () -> Diagnostic {
-	let tok = tokens.peek().ok_or_else(diag_eof)?;
-	let ret = selector(tok)?;
-	tokens.next();
-	return Ok(ret);
-}
+impl<'a> ParseContext<'a> {
+	fn take(&mut self, kind: TokenKind) -> Result<Token, Diagnostic> {
+		if self.at_end() {
+			let msg = format!("Expected {:#?}, got EOF", kind);
+			return Err(Diagnostic::simple_error(msg.into(), self.location()));
+		}
+		if self.current().unwrap().kind == kind {
+			Ok(self.next().unwrap())
+		} else {
+			let msg = format!("Expected {:#?}, got {:#?}", kind, self.current());
+			return Err(Diagnostic::simple_error(msg.into(), self.location()));
+		}
+	}
 
-fn take_kind<'a, I>(tokens: &mut Peekable<I>, kind: TokenKind) -> Result<Token, Diagnostic>
-where I: Iterator<Item = &'a Token> {
-	return take(tokens, |t| if t.kind == kind { Ok(t.clone().clone()) } else { Err(Diagnostic::simple_error(format!("Expected {:#?} got {:#?}", kind, t).into(), t.span.clone().clone())) }, || todo!());
-}
+	fn next(&mut self) -> Option<Token> {
+		if self.at_end() {
+			return None;
+		}
+		self.offset += 1;
+		Some(self.previous().unwrap())
+	}
 
-fn parse_effect<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Effect
-where I: Iterator<Item = &'a Token> {
-	match tokens.next() {
-		Some(Token {kind: TokenKind::Identifier(name), span})
-			=> Effect{span: span.clone(), val: EffectKind::Named(name.clone())},
-		Some(tok) => todo!("expected effect"),
-		None => todo!("expected effect"),
+	fn report_return<T>(&mut self, diag: Diagnostic, t: T) -> AstNode<T> {
+		self.report(diag);
+		AstNode { val: t, span: self.location() }
+	}
+
+	fn report(&mut self, diag: Diagnostic) {
+		self.diagnostics.push(diag);
+	}
+
+	fn at(&self, kind: TokenKind) -> bool {
+		(!self.at_end()) && self.current().unwrap().kind == kind
+	}
+
+	fn at_end(&self) -> bool {
+		self.offset == self.tokens.len()
+	}
+
+	fn current(&self) -> Option<Token> {
+		if self.at_end() {
+			None
+		} else {
+			Some(self.tokens[self.offset].clone())
+		}
+	}
+
+	fn previous(&self) -> Option<Token> {
+		if self.offset == 0 {
+			None
+		} else {
+			Some(self.tokens[self.offset - 1].clone())
+		}
+	}
+
+	fn location(&mut self) -> SourceSpan {
+		if self.at_end() {
+			self.previous().unwrap().span
+		} else {
+			self.current().unwrap().span
+		}
 	}
 }
 
-fn parse_type<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Type
-where I: Iterator<Item = &'a Token> {
-	match tokens.next() {
+fn parse_effect<'a>(ctx: &mut ParseContext<'a>) -> Effect {
+	match ctx.next() {
+		Some(Token {kind: TokenKind::Identifier(name), span})
+			=> Effect{span: span.clone(), val: EffectKind::Named(name.clone())},
+		Some(t) => {
+			let msg = format!("Expected effect, got {:#?}", t);
+			let diag = Diagnostic::simple_error(msg.into(), t.span.clone());
+			ctx.report_return(diag, EffectKind::Error)
+		},
+		None => {
+			let msg = format!("Expected effect, got EOF");
+			let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+			ctx.report_return(diag, EffectKind::Error)
+		},
+	}
+}
+
+fn parse_type<'a>(ctx: &mut ParseContext<'a>) -> Type {
+	match ctx.next() {
 		Some(Token {kind: TokenKind::Identifier(name), span}) => Type{span: span.clone(), val: TypeKind::Named(name.clone())},
 		Some(Token {kind: TokenKind::Keyword(Keyword::Hole), span}) => Type{span: span.clone(), val: TypeKind::Hole},
 		Some(Token {kind: TokenKind::Bang, span}) => Type{span: span.clone(), val: TypeKind::Never},
 		Some(Token {kind: TokenKind::LParen, span}) => {
 			let mut params = Vec::new();
-			let end_span = if let Ok(Token {span: n_span, ..}) = take_kind(tokens, TokenKind::RParen) {
+			let end_span = if let Ok(Token {span: n_span, ..}) = ctx.take(TokenKind::RParen) {
 				// return unit type if we immediately hit an RParen
 				return Type{span: span.extend(&n_span).unwrap(), val: TypeKind::Unit};
 			} else {
 				let end_span;
 				loop {
-					params.push(parse_type(diagnostics, tokens));
-					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+					params.push(parse_type(ctx));
+					if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma);
+					if let Err(diag) = ctx.take(TokenKind::Comma) {
+						return ctx.report_return(diag, TypeKind::Error);
+					}
 				}
 				end_span.clone()
 			};
@@ -73,83 +132,104 @@ where I: Iterator<Item = &'a Token> {
 		Some(Token {kind: TokenKind::Keyword(Keyword::Function), span}) => {
 			// function pointer
 			// grab LParen
-			take_kind(tokens, TokenKind::LParen);
+			if let Err(diag) = ctx.take(TokenKind::LParen) {
+				return ctx.report_return(diag, TypeKind::Error);
+			}
 			let mut params = Vec::new();
-			let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+			let end_span = if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 				// end early if we immediately hit an RParen
 				span
 			} else {
 				let end_span;
 				loop {
-					params.push(parse_type(diagnostics, tokens));
-					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+					params.push(parse_type(ctx));
+					if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma);
+					if let Err(diag) = ctx.take(TokenKind::Comma) {
+						return ctx.report_return(diag, TypeKind::Error);
+					}
 				}
 				end_span.clone()
 			};
-			let ret_type = parse_typetag(diagnostics, tokens);
+			let ret_type = parse_typetag(ctx);
 			return Type { span: span.extend(&end_span).unwrap(), val: TypeKind::Function(params.into(), ret_type.into())};
 		},
-		Some(tok) => todo!("expected type"),
-		None => todo!("expected type"),
+		Some(t) => {
+			let msg = format!("Expected type, got {:#?}", t);
+			let diag = Diagnostic::simple_error(msg.into(), t.span.clone());
+			ctx.report_return(diag, TypeKind::Error)
+		},
+		None => {
+			let msg = format!("Expected type, got EOF");
+			let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+			ctx.report_return(diag, TypeKind::Error)
+		},
 	}
 }
 
-fn parse_typetag<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Type
-where I: Iterator<Item = &'a Token> {
-	take_kind(tokens, TokenKind::Colon);
-	return parse_type(diagnostics, tokens);
+fn parse_typetag<'a>(ctx: &mut ParseContext) -> Type {
+	if let Err(diag) = ctx.take(TokenKind::Colon) {
+		return ctx.report_return(diag, TypeKind::Error);
+	}
+	return parse_type(ctx);
 }
 
-fn parse_return<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Stmt
-where I: Iterator<Item = &'a Token> {
-	let kw = tokens.next().unwrap();
-	let expr = parse_expr(diagnostics, tokens);
+fn parse_return<'a>(ctx: &mut ParseContext<'a>) -> Stmt {
+	let kw = ctx.next().unwrap();
+	let expr = parse_expr(ctx);
 	Stmt {span: kw.span.extend(&expr.span).unwrap(), val: StmtKind::Return(expr)}
 }
 
-fn parse_let_pattern<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> LetPattern
-where I: Iterator<Item = &'a Token> {
-	match tokens.next() {
+fn parse_let_pattern<'a>(ctx: &mut ParseContext) -> LetPattern {
+	match ctx.next() {
 		Some(Token { kind: TokenKind::Keyword(Keyword::Mutable), span: start_span }) => {
-			match tokens.next() {
+			match ctx.next() {
 				Some(Token { kind: TokenKind::Identifier(n), span: end_span}) => {
-					let type_ = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
-						Some(parse_typetag(diagnostics, tokens))
+					let type_ = if ctx.at(TokenKind::Colon) {
+						Some(parse_typetag(ctx))
 					} else {
 						None
 					};
-					LetPattern {span: start_span.extend(end_span).unwrap(), val: LetPatternKind::Named(Mutability::Mutable, n.clone(), type_)}
+					LetPattern {span: start_span.extend(&end_span).unwrap(), val: LetPatternKind::Named(Mutability::Mutable, n.clone(), type_)}
 				},
-				Some(t) => todo!("expected pattern name"),
-				None => todo!("expected pattern name"),
+				Some(t) => {
+					let msg = format!("Expected pattern name, got {:#?}", t);
+					let diag = Diagnostic::simple_error(msg.into(), t.span.clone());
+					ctx.report_return(diag, LetPatternKind::Error)
+				},
+				None => {
+					let msg = format!("Expected pattern name, got EOF");
+					let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+					ctx.report_return(diag, LetPatternKind::Error)
+				},
 			}
 		},
 		Some(Token { kind: TokenKind::LParen, span: start_span}) => {
 			let mut params = Vec::new();
-			let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+			let end_span = if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 				// end early if we immediately hit an RParen
 				span
 			} else {
 				let end_span;
 				loop {
-					params.push(parse_let_pattern(diagnostics, tokens));
-					if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+					params.push(parse_let_pattern(ctx));
+					if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 						end_span = span;
 						break;
 					}
-					take_kind(tokens, TokenKind::Comma);
+					if let Err(diag) = ctx.take(TokenKind::Comma) {
+						return ctx.report_return(diag, LetPatternKind::Error);
+					}
 				}
 				end_span
 			};
 			return LetPattern {span: start_span.extend(&end_span).unwrap(), val: LetPatternKind::Tuple(params.into())};
 		},
 		Some(Token { kind: TokenKind::Identifier(n), span}) => {
-			let (type_, span) = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
-				let type_ = parse_typetag(diagnostics, tokens);
+			let (type_, span) = if ctx.at(TokenKind::Colon) {
+				let type_ = parse_typetag(ctx);
 				let span = span.extend(&type_.span).unwrap();
 
 				(Some(type_), span)
@@ -160,8 +240,8 @@ where I: Iterator<Item = &'a Token> {
 		},
 		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), span}) =>
 		{
-			let (type_, span) = if tokens.peek().filter(|t| t.kind == TokenKind::Colon).is_some() {
-				let type_ = parse_typetag(diagnostics, tokens);
+			let (type_, span) = if ctx.at(TokenKind::Colon) {
+				let type_ = parse_typetag(ctx);
 
 				let span = span.extend(&type_.span).unwrap();
 
@@ -171,160 +251,192 @@ where I: Iterator<Item = &'a Token> {
 			};
 			LetPattern {span, val: LetPatternKind::Hole(type_)}
 		},
-		Some(t) => todo!("Expected pattern"),
-		None => todo!("Expected pattern"),
+		Some(t) => {
+			let msg = format!("Expected pattern, got {:#?}", t);
+			let diag = Diagnostic::simple_error(msg.into(), t.span.clone());
+			ctx.report_return(diag, LetPatternKind::Error)
+		},
+		None => {
+			let msg = format!("Expected pattern, got EOF");
+			let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+			ctx.report_return(diag, LetPatternKind::Error)
+		},
 	}
 }
 
-fn parse_if<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> (SourceSpan, If)
-where I: Iterator<Item = &'a Token> {
-	let kw = tokens.next().unwrap();
-	let cond = parse_expr(diagnostics, tokens);
-	let (span, body) = parse_scope_block(diagnostics, tokens);
+fn parse_if<'a>(ctx: &mut ParseContext<'a>) -> (SourceSpan, If) {
+	let kw = ctx.next().unwrap();
+	let cond = parse_expr(ctx);
+	let (span, body) = parse_scope_block(ctx);
 	// else / elif block?
-	let (span, _else) = match tokens.peek() {
+	let (span, _else) = match ctx.current() {
 		Some(Token {kind: TokenKind::Keyword(Keyword::Else), ..}) =>
-		{ tokens.next(); let (span, scope) = parse_scope_block(diagnostics, tokens); (span.clone(), Some(Expr {span, val: ExprKind::Scope(scope)}.into())) },
+		{ ctx.next(); let (span, scope) = parse_scope_block(ctx); (span.clone(), Some(Expr {span, val: ExprKind::Scope(scope)}.into())) },
 		Some(Token {kind: TokenKind::Keyword(Keyword::Elif), ..}) =>
-		{ let (span, _if) = parse_if(diagnostics, tokens); (span.clone(), Some(Expr {span, val: ExprKind::If(_if)}.into())) },
+		{ let (span, _if) = parse_if(ctx); (span.clone(), Some(Expr {span, val: ExprKind::If(_if)}.into())) },
 		_ => (span, None),
 	};
 
 	return (kw.span.extend(&span).unwrap(), If {condition: cond.into(), body, _else });
 }
 
-fn parse_while<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> (SourceSpan, While)
-where I: Iterator<Item = &'a Token> {
-	let kw = tokens.next().unwrap();
-	let cond = parse_expr(diagnostics, tokens);
-	let (end, body) = parse_scope_block(diagnostics, tokens);
+fn parse_while<'a>(ctx: &mut ParseContext<'a>) -> (SourceSpan, While) {
+	let kw = ctx.next().unwrap();
+	let cond = parse_expr(ctx);
+	let (end, body) = parse_scope_block(ctx);
 	(kw.span.extend(&end).unwrap(), While {condition: cond.into(), body} )
 }
 
-fn parse_let<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Stmt
-where I: Iterator<Item = &'a Token> {
-	let kw = tokens.next().unwrap();
-	let pattern = parse_let_pattern(diagnostics, tokens);
-	take_kind(tokens, TokenKind::Assign);
-	let expr = parse_expr(diagnostics, tokens);
+fn parse_let<'a>(ctx: &mut ParseContext<'a>) -> Stmt {
+	let kw = ctx.next().unwrap();
+	let pattern = parse_let_pattern(ctx);
+	if let Err(diag) = ctx.take(TokenKind::Assign) {
+		return ctx.report_return(diag, StmtKind::Error);
+	}
+	let expr = parse_expr(ctx);
 	Stmt { span: kw.span.extend(&expr.span).unwrap(), val: StmtKind::Let(pattern, expr) }
 }
 
-fn parse_scope_block<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> (SourceSpan, Scope)
-where I: Iterator<Item = &'a Token> {
-	let start = take_kind(tokens, TokenKind::LCurly).unwrap().span;
-	// function bodies can first have as many child / helper functions as they want
-	let (body, end) = if let Ok(Token{span, ..}) = take_kind(tokens, TokenKind::RCurly) {
+fn parse_scope_block<'a>(ctx: &mut ParseContext<'a>) -> (SourceSpan, Scope) {
+	let start = ctx.take(TokenKind::LCurly);
+	let start = if let Err(diag) = start {
+		ctx.report(diag);
+		ctx.location()
+	} else {
+		start.unwrap().span
+	};
+	let (body, end) = if let Ok(Token{span, ..}) = ctx.take(TokenKind::RCurly) {
 		// implied Unit expression
 		(Scope {body: Box::new([]), value: None}, span)
 	} else {
-		let body = parse_scope(diagnostics, tokens);
-		let span = take_kind(tokens, TokenKind::RCurly).unwrap().span;
+		let body = parse_scope(ctx);
+		let span = ctx.take(TokenKind::RCurly);
+		let span = if let Err(diag) = span {
+			ctx.report(diag);
+			ctx.location()
+		} else {
+			span.unwrap().span
+		};
 		(body, span)
 	};
 	return (start.extend(&end).unwrap(), body);
 }
 
-fn parse_atom_expr_or_pattern<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> AssignPatternOrExpr
-where I: Iterator<Item = &'a Token> {
+fn parse_atom_expr_or_pattern<'a>(ctx: &mut ParseContext<'a>) -> AssignPatternOrExpr {
 	use AssignPatternOrExpr as AP;
-	let tok = tokens.peek().unwrap();
+	let tok = ctx.current();
+	if tok.is_none() {
+		let msg = "Expected expression term, got EOF instead";
+		let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+		ctx.report(diag);
+		return AP::Error;
+	}
+	let tok = tok.unwrap();
 	match tok.kind.clone() {
 		TokenKind::Keyword(Keyword::Hole) => {
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			AP::Pattern(AssignPattern {span, val: AssignPatternKind::Hole})
 		},
 		TokenKind::Integer(val) => {
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			AP::Expr(Expr {span, val: ExprKind::Integer(val)})
 		},
 		TokenKind::Keyword(Keyword::True) => {
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			AP::Expr(Expr {span, val: ExprKind::Boolean(true)})
 		},
 		TokenKind::Keyword(Keyword::False) => {
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			AP::Expr(Expr {span, val: ExprKind::Boolean(false)})
 		},
 		TokenKind::Keyword(Keyword::If) => {
-			let (span, _if) = parse_if(diagnostics, tokens);
+			let (span, _if) = parse_if(ctx);
 			AP::Expr(Expr {span, val: ExprKind::If(_if)})
 		},
 		TokenKind::Keyword(Keyword::While) => {
-			let (span, _while) = parse_while(diagnostics, tokens);
+			let (span, _while) = parse_while(ctx);
 			AP::Expr(Expr {span, val: ExprKind::While(_while)})
 		},
 		TokenKind::Identifier(name) => {
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			AP::Named(span, name)
 		},
 		TokenKind::LCurly => {
-			let (span, scope) = parse_scope_block(diagnostics, tokens);
+			let (span, scope) = parse_scope_block(ctx);
 			AP::Expr(Expr {span, val: ExprKind::Scope(scope)})
 		},
 		TokenKind::LParen => {
 			// unit / parenthesized / tuple
-			let span = tokens.next().unwrap().span.clone();
+			let span = ctx.next().unwrap().span.clone();
 			let mut args = Vec::new();
 			// does this call have args?
-			let end_span = if let Ok(Token {span, .. }) = take_kind(tokens, TokenKind::RParen) {
+			let end_span = if let Ok(Token {span, .. }) = ctx.take(TokenKind::RParen) {
 				span
 			} else {
 				loop {
-					args.push(parse_pattern_or_expr(diagnostics, tokens));
-					if take_kind(tokens, TokenKind::Comma).is_err() {
+					args.push(parse_pattern_or_expr(ctx));
+					if ctx.take(TokenKind::Comma).is_err() {
 						// we need to have an rparen here now
-						break take_kind(tokens, TokenKind::RParen).unwrap().span;
+						let rparen = ctx.take(TokenKind::RParen);
+						if let Err(diag) = rparen {
+							ctx.report(diag);
+							return AP::Error;
+						}
+						break rparen.unwrap().span;
 					}
 				}
 			};
 			AP::Grouped(span.extend(&end_span).unwrap(), args.into())
 		},
-		c => {
-			diagnostics.push(Diagnostic::simple_error(format!("Expected expression term, got {:#?} instead", tok).into(), tok.span.clone()));
+		_ => {
+			ctx.report(Diagnostic::simple_error(format!("Expected expression term, got {:#?} instead", tok).into(), tok.span.clone()));
 			AP::Error
 		}
 	}
 }
 
-fn parse_suffix_expr_or_pattern<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> AssignPatternOrExpr
-where I: Iterator<Item = &'a Token> {
+fn parse_suffix_expr_or_pattern<'a>(ctx: &mut ParseContext<'a>) -> AssignPatternOrExpr {
 	use AssignPatternOrExpr as AP;
 	// parse core item
-	let mut core = parse_atom_expr_or_pattern(diagnostics, tokens);
+	let mut core = parse_atom_expr_or_pattern(ctx);
 
 	// parse suffixes
 	loop {
-		let tok = tokens.peek();
+		let tok = ctx.current();
 		let tok = match tok {
 			None => break,
 			Some(t) => t.clone(),
 		};
 		match tok.kind {
 			TokenKind::Bang => {
-				tokens.next();
-				let expr = rewrite_to_expr(diagnostics, &core);
+				ctx.next();
+				let expr = rewrite_to_expr(ctx, &core);
 				core = AP::Expr(Expr { span: expr.span.extend(&tok.span).unwrap(), val: ExprKind::Suffix(expr.into(), SuffixOp {span: tok.span.clone(), val: Suffix::Yell }) });
 			}
 			TokenKind::Question => {
-				tokens.next();
-				let expr = rewrite_to_expr(diagnostics, &core);
+				ctx.next();
+				let expr = rewrite_to_expr(ctx, &core);
 				core = AP::Expr(Expr { span: expr.span.extend(&tok.span).unwrap(), val: ExprKind::Suffix(expr.into(), SuffixOp {span: tok.span.clone(), val: Suffix::Query }) });
 			}
 			TokenKind::LParen => {
 				// call
-				tokens.next();
+				ctx.next();
 				let mut args = Vec::new();
-				let expr = rewrite_to_expr(diagnostics, &core);
+				let expr = rewrite_to_expr(ctx, &core);
 				// does this call have args?
-				let end_span = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RParen) {
+				let end_span = if let Ok(Token {span, ..}) = ctx.take(TokenKind::RParen) {
 					span
 				} else {
 					loop {
-						args.push(parse_expr(diagnostics, tokens));
-						if take_kind(tokens, TokenKind::Comma).is_err() {
+						args.push(parse_expr(ctx));
+						if ctx.take(TokenKind::Comma).is_err() {
 							// we need to have an rparen here now
-							break take_kind(tokens, TokenKind::RParen).unwrap().span;
+							let rparen = ctx.take(TokenKind::RParen);
+							if let Err(diag) = rparen {
+								ctx.report(diag);
+								return AP::Error;
+							}
+							break rparen.unwrap().span;
 						}
 					}
 				};
@@ -336,13 +448,12 @@ where I: Iterator<Item = &'a Token> {
 	core
 }
 
-fn parse_prefix_expr_or_pattern<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> AssignPatternOrExpr
-where I: Iterator<Item = &'a Token> {
+fn parse_prefix_expr_or_pattern<'a>(ctx: &mut ParseContext<'a>) -> AssignPatternOrExpr {
 	// parse prefixes onto a stack
 	let mut prefix_stack = Vec::new();
 	loop {
-		let tok = tokens.peek();
-		let prefix = match tok {
+		let tok = ctx.current();
+		let prefix = match &tok {
 			None => break,
 			Some(tok) => {
 				match tok.kind {
@@ -361,28 +472,27 @@ where I: Iterator<Item = &'a Token> {
 			},
 		};
 		prefix_stack.push(PrefixOp {span: tok.unwrap().span.clone(), val: prefix});
-		tokens.next();
+		ctx.next();
 	}
 
 	// parse core item
-	let mut core = parse_suffix_expr_or_pattern(diagnostics, tokens);
+	let mut core = parse_suffix_expr_or_pattern(ctx);
 
 	// apply prefixes
 	while let Some(prefix) = prefix_stack.pop() {
-		let expr = rewrite_to_expr(diagnostics, &core);
+		let expr = rewrite_to_expr(ctx, &core);
 		core = AssignPatternOrExpr::Expr(Expr {span: expr.span.extend(&prefix.span).unwrap(), val: ExprKind::Prefix(prefix, expr.into())});
 	}
 
 	core
 }
 
-fn parse_bin_exprs_or_patterns<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> (AssignPatternOrExpr, Box<[(InfixOp, Expr)]>)
-where I: Iterator<Item = &'a Token> {
-	let leftmost = parse_prefix_expr_or_pattern(diagnostics, tokens);
+fn parse_bin_exprs_or_patterns<'a>(ctx: &mut ParseContext<'a>) -> (AssignPatternOrExpr, Box<[(InfixOp, Expr)]>) {
+	let leftmost = parse_prefix_expr_or_pattern(ctx);
 	let mut right = Vec::new();
 	// parse infixes
 	loop {
-		let tok = tokens.peek();
+		let tok = ctx.current();
 		let tok = match tok {
 			None => break,
 			Some(t) => t.clone(),
@@ -413,9 +523,9 @@ where I: Iterator<Item = &'a Token> {
 			TokenKind::AndAnd => Infix::LogicAnd,
 			_ => break,
 		};
-		tokens.next();
-		let rhs = parse_prefix_expr_or_pattern(diagnostics, tokens);
-		let rhs = rewrite_to_expr(diagnostics, &rhs);
+		ctx.next();
+		let rhs = parse_prefix_expr_or_pattern(ctx);
+		let rhs = rewrite_to_expr(ctx, &rhs);
 		let op = InfixOp {span: tok.span.clone(), val: infix};
 		right.push((op, rhs))
 	}
@@ -485,14 +595,13 @@ fn get_associavity(infix: &Infix) -> Associativity {
 	}
 }
 
-fn parse_bin_expr<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> AssignPatternOrExpr
-where I: Iterator<Item = &'a Token> {
-	let (lhs, bins) = parse_bin_exprs_or_patterns(diagnostics, tokens);
+fn parse_bin_expr<'a>(ctx: &mut ParseContext<'a>) -> AssignPatternOrExpr {
+	let (lhs, bins) = parse_bin_exprs_or_patterns(ctx);
 	if bins.len() == 0 {
 		return lhs;
 	}
 
-	let lhs = rewrite_to_expr(diagnostics, &lhs);
+	let lhs = rewrite_to_expr(ctx, &lhs);
 
 	let mut working_stack = Vec::new();
 	working_stack.push(lhs);
@@ -509,7 +618,12 @@ where I: Iterator<Item = &'a Token> {
 					Ordering::Equal => match assoc {
 						Associativity::Left => true,
 						Associativity::Right => false,
-						Associativity::Explicit => todo!("Ambiguous operator error diagnostic"),
+						Associativity::Explicit => {
+							let msg = "Ambiguous operator order".into();
+							let diag = Diagnostic::simple_error(msg, op.span.clone());
+							ctx.report(diag);
+							true
+						},
 					},
 					Ordering::Greater => true,
 				}
@@ -539,30 +653,34 @@ where I: Iterator<Item = &'a Token> {
 	}
 }
 
-fn parse_pattern_or_expr<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> AssignPatternOrExpr
-where I: Iterator<Item = &'a Token> {
-	let lhs = parse_bin_expr(diagnostics, tokens);
+fn parse_pattern_or_expr<'a>(ctx: &mut ParseContext) -> AssignPatternOrExpr {
+	let lhs = parse_bin_expr(ctx);
 
-	if take_kind(tokens, TokenKind::Assign).is_ok() {
-		let rhs = parse_expr(diagnostics, tokens);
-		let lhs = rewrite_to_pattern(diagnostics, &lhs);
+	if ctx.take(TokenKind::Assign).is_ok() {
+		let rhs = parse_expr(ctx);
+		let lhs = rewrite_to_pattern(ctx, &lhs);
 		let span = lhs.span.extend(&rhs.span).unwrap();
 		return AssignPatternOrExpr::Expr(Expr{span, val: ExprKind::Assign(lhs, rhs.into())});
 	}
 	lhs
 }
 
-fn rewrite_to_expr(diagnostics: &mut Vec<Diagnostic>, potential_expr: &AssignPatternOrExpr) -> Expr {
+fn rewrite_to_expr(ctx: &mut ParseContext, potential_expr: &AssignPatternOrExpr) -> Expr {
 	use AssignPatternOrExpr as AP;
 	match potential_expr {
-		AP::Error => todo!("rewrite 'error' to expression"),
+		AP::Error => {
+			Expr{span: ctx.location(), val: ExprKind::Error}
+		},
 		AP::Expr(e) => e.clone(),
-		AP::Pattern(p) => todo!("illegal expression term (pattern)"),
+		AP::Pattern(p) => {
+			let diag = Diagnostic::simple_error("Invalid expression term".into(), p.span.clone());
+			ctx.report_return(diag, ExprKind::Error)
+		},
 		AP::Named(span, name) => Expr {span: span.clone(), val: ExprKind::Lookup(name.clone())},
 		AP::Grouped(span, vals) => {
 			let mut exprs = Vec::new();
 			for val in vals.into_iter() {
-				exprs.push(rewrite_to_expr(diagnostics, val));
+				exprs.push(rewrite_to_expr(ctx, val));
 			}
 
 			match exprs.len() {
@@ -574,17 +692,20 @@ fn rewrite_to_expr(diagnostics: &mut Vec<Diagnostic>, potential_expr: &AssignPat
 	}
 }
 
-fn rewrite_to_pattern(diagnostics: &mut Vec<Diagnostic>, potential_expr: &AssignPatternOrExpr) -> AssignPattern {
+fn rewrite_to_pattern<'a>(ctx: &mut ParseContext<'a>, potential_expr: &AssignPatternOrExpr) -> AssignPattern {
 	use AssignPatternOrExpr as AP;
 	match potential_expr {
-		AP::Error => todo!("rewrite 'error' to pattern"),
-		AP::Expr(e) => todo!("illegal pattern term (expression)"),
+		AP::Error => AssignPattern { span: ctx.location(), val: AssignPatternKind::Error },
+		AP::Expr(e) => {
+			let diag = Diagnostic::simple_error("Invalid pattern term".into(), e.span.clone());
+			ctx.report_return(diag, AssignPatternKind::Error)
+		},
 		AP::Pattern(p) => p.clone(),
 		AP::Named(span, name) => AssignPattern {span: span.clone(), val: AssignPatternKind::Named(name.clone())},
 		AP::Grouped(span, vals) => {
 			let mut pats = Vec::new();
 			for val in vals.into_iter() {
-				pats.push(rewrite_to_pattern(diagnostics, val));
+				pats.push(rewrite_to_pattern(ctx, val));
 			}
 
 			AssignPattern {span: span.clone(), val: AssignPatternKind::Tuple(pats.into())}
@@ -592,11 +713,10 @@ fn rewrite_to_pattern(diagnostics: &mut Vec<Diagnostic>, potential_expr: &Assign
 	}
 }
 
-fn parse_expr<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Expr
-where I: Iterator<Item = &'a Token> {
-	let lhs = parse_pattern_or_expr(diagnostics, tokens);
+fn parse_expr<'a>(ctx: &mut ParseContext<'a>) -> Expr {
+	let lhs = parse_pattern_or_expr(ctx);
 
-	let lhs = rewrite_to_expr(diagnostics, &lhs);
+	let lhs = rewrite_to_expr(ctx, &lhs);
 	return lhs;
 }
 
@@ -611,6 +731,8 @@ fn restrictions(expr: &ExprKind) -> ExprAllowed {
 	use ExprKind as E;
 	use ExprAllowed as A;
 	match expr {
+		E::Error => A::Semicolon,
+
 		// literals at end of block only
 		E::Integer(_) | E::Boolean(_) | E::Tuple(_) | E::Unit => A::EndOfBlock,
 		// variable lookups at end of block only
@@ -626,174 +748,237 @@ fn restrictions(expr: &ExprKind) -> ExprAllowed {
 	}
 }
 
-fn parse_stmt<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Stmt
-where I: Iterator<Item = &'a Token> {
-	if tokens.peek().filter(|t| t.kind == TokenKind::Keyword(Keyword::Let)).is_some() {
+fn parse_stmt<'a>(ctx: &mut ParseContext<'a>) -> Stmt {
+	if ctx.at(TokenKind::Keyword(Keyword::Let)) {
 		// let
-		return parse_let(diagnostics, tokens);
-	} else if tokens.peek().filter(|t| t.kind == TokenKind::Keyword(Keyword::Return)).is_some() {
+		return parse_let(ctx);
+	} else if ctx.at(TokenKind::Keyword(Keyword::Return)) {
 		// let
-		return parse_return(diagnostics, tokens);
+		return parse_return(ctx);
 	}
-	let expr = parse_expr(diagnostics, tokens);
+	let expr = parse_expr(ctx);
 	return Stmt{span: expr.span.clone(), val: StmtKind::Expr(expr)};
 }
 
-fn parse_scope<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Scope
-where I: Iterator<Item = &'a Token> {
+fn parse_scope<'a>(ctx: &mut ParseContext<'a>) -> Scope {
 	let mut list = Vec::new();
 	let mut value = None;
 
 	loop {
-		let stmt = parse_stmt(diagnostics, tokens);
+		if ctx.at_end() {
+			let message = "Expected statement / RCurly, got EOF";
+			let diag = Diagnostic::simple_error(message.into(), ctx.location());
+			ctx.report(diag);
+			break;
+		}
+		if ctx.at(TokenKind::RCurly) {
+			break;
+		}
+
+		let stmt = parse_stmt(ctx);
 		match stmt.val.clone() {
 			StmtKind::Expr(e) => {
 				// the olden way
 				let restriction = restrictions(&e.val);
-				match (restriction, tokens.peek()) {
+				match (restriction, ctx.current()) {
 					(_, Some(Token { kind: TokenKind::RCurly, ..})) => {
 						// end of block
 						// put it as the value
 						value = Some(e.into());
+						break;
 					},
 					(ExprAllowed::Semicolon, Some(Token { kind: TokenKind::SemiColon, ..})) => {
-						take_kind(tokens, TokenKind::SemiColon).unwrap();
-						while let Ok(_) = take_kind(tokens, TokenKind::SemiColon) {}
+						ctx.next();
+						while let Ok(_) = ctx.take(TokenKind::SemiColon) {}
 						list.push(stmt);
 					},
 					(ExprAllowed::Always, _) => {
 						// consume as many semicolons as possible
-						while let Ok(_) = take_kind(tokens, TokenKind::SemiColon) {}
+						while let Ok(_) = ctx.take(TokenKind::SemiColon) {}
 						list.push(stmt);
 					},
-					(ExprAllowed::EndOfBlock, Some(t)) => {
-						todo!("only allowed end of block");
+					(ExprAllowed::EndOfBlock, _) => {
+						let message = "This type of expression is only allowed at the end of a block";
+						let diag = Diagnostic::simple_error(message.into(), e.span);
+						ctx.report(diag);
+						// consume as many semicolons as possible
+						while let Ok(_) = ctx.take(TokenKind::SemiColon) {}
 					},
-					(ExprAllowed::Semicolon, Some(t)) => {
-						todo!("only allowed end of block or followed by semicolon");
+					(ExprAllowed::Semicolon, _) => {
+						let message = "This type of expression is not allowed stand-alone and must be terminated by a semicolon (or at the end of a block as return value)";
+						let diag = Diagnostic::simple_error(message.into(), e.span);
+						ctx.report(diag);
 					},
-					(ExprAllowed::EndOfBlock, None) => todo!("only allowed end of block"),
-					(_, None) => todo!("only allowed end of block or followed by semicolon"),
 				}
 			},
 			StmtKind::Return(_) | StmtKind::Let(..) => {
-				take_kind(tokens, TokenKind::SemiColon).unwrap();
-				while let Ok(_) = take_kind(tokens, TokenKind::SemiColon) {}
+				if let Err(diag) = ctx.take(TokenKind::SemiColon) {
+					ctx.report(diag);
+				}
+				while let Ok(_) = ctx.take(TokenKind::SemiColon) {}
 				list.push(stmt);
 			},
-		}
-		if tokens.peek().filter(|t| t.kind == TokenKind::RCurly).is_some() {
-			// end of block
-			break;
+			StmtKind::Error => {
+				list.push(stmt);
+			},
 		}
 	}
 
 	return Scope{body: list.into(), value};
 }
 
-fn parse_function_body<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> (Box<[Function]>, Scope, SourceSpan)
-where I: Iterator<Item = &'a Token> {
-	take_kind(tokens, TokenKind::LCurly).unwrap();
+fn parse_function_body<'a>(ctx: &mut ParseContext<'a>) -> (Box<[Function]>, Scope, SourceSpan) {
+	if let Err(diag) = ctx.take(TokenKind::LCurly) {
+		ctx.report(diag);
+		return (Box::new([]), Scope { body: Box::new([]), value: None }, ctx.location());
+	}
 	// function bodies can first have as many child / helper functions as they want
 	let mut children = Vec::new();
-	while let Some(tok) = tokens.peek() {
+	while let Some(tok) = ctx.current() {
 		children.push(match tok.kind {
 			TokenKind::Keyword(Keyword::Function)
-				=> parse_function(diagnostics, tokens),
+				=> parse_function(ctx),
 			_ => break,
 		});
 	}
-	let (body, span) = if let Ok(Token {span, ..}) = take_kind(tokens, TokenKind::RCurly) {
+	let (body, span) = if let Ok(Token {span, ..}) = ctx.take(TokenKind::RCurly) {
 		// empty body
 		(Scope {
 			body: Box::new([]),
 			value: None,
 		}, span)
 	} else {
-		let body = parse_scope(diagnostics, tokens);
-		let span = take_kind(tokens, TokenKind::RCurly).unwrap().span;
+		let body = parse_scope(ctx);
+		// we need to have an rcurly here now
+		let rcurly = ctx.take(TokenKind::RCurly);
+		let span = if let Err(diag) = rcurly {
+			ctx.report(diag);
+			ctx.location()
+		} else {
+			rcurly.unwrap().span
+		};
 		(body, span)
 	};
 	return (children.into(), body, span);
 }
 
-fn parse_param<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Param
-where I: Iterator<Item = &'a Token> {
-	match tokens.next() {
+fn parse_param<'a>(ctx: &mut ParseContext<'a>) -> Param {
+	match ctx.next() {
 		Some(Token { kind: TokenKind::Keyword(Keyword::Hole), span}) => {
-			let _type = parse_typetag(diagnostics, tokens);
+			let _type = parse_typetag(ctx);
 			Param { span: span.clone(), val: ParamKind::Ignored(_type)}
 		},
 		Some(Token { kind: TokenKind::Identifier(name), span}) => {
-			let _type = parse_typetag(diagnostics, tokens);
+			let _type = parse_typetag(ctx);
 			Param { span: span.clone(), val: ParamKind::Named(name.clone(), _type)}
 		},
-		Some(t) => todo!("Expected parameter"),
-		None => todo!("Expected parameter"),
+		Some(t) => {
+			let msg = format!("Expected parameter, got {:#?}", t);
+			let diag = Diagnostic::simple_error(msg.into(), t.span.clone());
+			ctx.report_return(diag, ParamKind::Error)
+		},
+		None => {
+			let msg = format!("Expected parameter, got EOF");
+			let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+			ctx.report_return(diag, ParamKind::Error)
+		},
 	}
 }
 
-fn parse_function<'a, I>(diagnostics: &mut Vec<Diagnostic>, tokens: &mut Peekable<I>) -> Function
-where I: Iterator<Item = &'a Token> {
+fn parse_function<'a>(ctx: &mut ParseContext<'a>) -> Function {
 	// get the `fn`
-	let kw = tokens.next().unwrap().clone();
+	let kw = ctx.next().unwrap().clone();
 	let mut effects = Vec::new();
 	// do we have a `[`?
-	if let Some(_) = tokens.next_if(|t| t.kind == TokenKind::LSquare) {
+	if let Ok(_) = ctx.take(TokenKind::LSquare) {
 		loop {
-			if let Some(_) = tokens.next_if(|t| t.kind == TokenKind::RSquare) {
+			if let Ok(_) = ctx.take(TokenKind::RSquare) {
 				break;
 			}
-			effects.push(parse_effect(diagnostics, tokens));
+			effects.push(parse_effect(ctx));
 		}
 	}
 	// name
-	let name = take(tokens, |t| {
+	let name = ctx.current();
+	let name = if let Some(t) = name {
 		if let Token {kind: TokenKind::Identifier(n), ..} = t {
-			Ok(n.clone())
+			n.clone()
 		} else {
-			todo!("Expected function name");
+			let msg = format!("Expected function name, got {:#?}", t);
+			let diag = Diagnostic::simple_error(msg.into(), t.span);
+			ctx.report(diag);
+			return Function {
+				span: ctx.location(), effects: effects.into(), name: "[INTERNAL ERROR]".into(), helpers: Box::new([]),
+				params: Box::new([]), return_type: Type {span: ctx.location(), val: TypeKind::Error}, body: Scope {body: Box::new([]), value: None}
+			};
 		}
-	}, || todo!()).unwrap();
+	} else {
+		let msg = format!("Expected function name, got EOF");
+		let diag = Diagnostic::simple_error(msg.into(), ctx.location());
+		ctx.report(diag);
+		return Function {
+			span: ctx.location(), effects: effects.into(), name: "[INTERNAL ERROR]".into(), helpers: Box::new([]),
+			params: Box::new([]), return_type: Type {span: ctx.location(), val: TypeKind::Error}, body: Scope {body: Box::new([]), value: None}
+		};
+	};
+	ctx.next();
 	// parameters
 	let mut params = Vec::new();
-	take_kind(tokens, TokenKind::LParen).unwrap();
+	// we need to have an lparen here now
+	if let Err(diag) = ctx.take(TokenKind::LParen) {
+		ctx.report(diag);
+		return Function {
+			span: ctx.location(), effects: effects.into(), name, helpers: Box::new([]),
+			params: Box::new([]), return_type: Type {span: ctx.location(), val: TypeKind::Error}, body: Scope {body: Box::new([]), value: None}
+		};
+	}
 
-	if take_kind(tokens, TokenKind::RParen).is_err() {
+	if ctx.take(TokenKind::RParen).is_err() {
 		loop {
-			params.push(parse_param(diagnostics, tokens));
-			if take_kind(tokens, TokenKind::RParen).is_ok() {
+			params.push(parse_param(ctx));
+			if ctx.take(TokenKind::RParen).is_ok() {
 				break;
 			}
-			take_kind(tokens, TokenKind::Comma).unwrap();
+			// we need to have a comma here now
+			if let Err(diag) = ctx.take(TokenKind::Comma) {
+				ctx.report(diag);
+				return Function {
+					span: ctx.location(), effects: effects.into(), name, helpers: Box::new([]),
+					params: Box::new([]), return_type: Type {span: ctx.location(), val: TypeKind::Error}, body: Scope {body: Box::new([]), value: None}
+				};
+			}
 		}
 	}
 	// end of params
+	let return_type = parse_typetag(ctx);
 
-	let return_type = parse_typetag(diagnostics, tokens);
-
-	let (helpers, body, span) = parse_function_body(diagnostics, tokens);
+	let (helpers, body, span) = parse_function_body(ctx);
 	Function { span: kw.span.extend(&span).unwrap(), effects: effects.into(), name, params: params.into(), return_type, helpers, body }
 }
 
 pub fn parse(tokens: &[Token]) -> (Option<AST>, Box<[Diagnostic]>) {
-	let mut iter = tokens.iter().peekable();
 	let mut functions = Vec::new();
-	let mut diagnostics = Vec::new();
 
-	while let Some(tok) = iter.peek() {
+	let mut ctx = ParseContext { diagnostics: Vec::new(), tokens, offset: 0 };
+
+	while let Some(tok) = ctx.current() {
 		match tok.kind {
 			TokenKind::Keyword(Keyword::Function) => {
-				let func = parse_function(&mut diagnostics, &mut iter);
+				let func = parse_function(&mut ctx);
 				functions.push(func);
 			}
-			_ => todo!("expected fn keyword"),
+			t => {
+				let msg = format!("Expected fn keyword, got {:?}", t.clone());
+				let diag = Diagnostic::simple_error(msg.into(), tok.span.clone());
+				ctx.report(diag);
+				ctx.next();
+			}
 		}
 	}
-	let any_errors = (&diagnostics).into_iter().any(|d| d.1 == Severity::Error);
+	let any_errors = (&ctx.diagnostics).into_iter().any(|d| d.1 == Severity::Error);
 	if any_errors {
-		(None, diagnostics.into())
+		(None, ctx.diagnostics.into())
 	} else {
-		(Some(AST { functions: functions.into() }), diagnostics.into())
+		(Some(AST { functions: functions.into() }), ctx.diagnostics.into())
 	}
 }

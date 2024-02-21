@@ -30,12 +30,16 @@ pub struct Function {
 pub type Effect = AstNode<EffectKind>;
 #[derive(Debug, Clone)]
 pub enum EffectKind {
+	Error,
+
 	Named(Rc<str>),
 }
 
 pub type Param = AstNode<ParamKind>;
 #[derive(Debug, Clone)]
 pub enum ParamKind {
+	Error,
+
 	Ignored(Type),
 	Named(Rc<str>, Type),
 }
@@ -43,6 +47,8 @@ pub enum ParamKind {
 pub type Type = AstNode<TypeKind>;
 #[derive(Debug, Clone)]
 pub enum TypeKind {
+	Error,
+
 	Hole,
 	Unit,
 	Never,
@@ -54,6 +60,8 @@ pub enum TypeKind {
 pub type Stmt = AstNode<StmtKind>;
 #[derive(Debug, Clone)]
 pub enum StmtKind {
+	Error,
+
 	Expr(Expr),
 	Let(LetPattern, Expr),
 	Return(Expr),
@@ -62,6 +70,8 @@ pub enum StmtKind {
 pub type LetPattern = AstNode<LetPatternKind>;
 #[derive(Debug, Clone)]
 pub enum LetPatternKind {
+	Error,
+
 	Hole(Option<Type>),
 	Named(Mutability, Rc<str>, Option<Type>),
 	Tuple(Box<[LetPattern]>),
@@ -76,6 +86,8 @@ pub enum Mutability {
 pub type Expr = AstNode<ExprKind>;
 #[derive(Debug, Clone)]
 pub enum ExprKind {
+	Error,
+
 	Assign(AssignPattern, Box<Expr>),
 	Call(Box<Expr>, Box<[Expr]>),
 	Infix(Box<Expr>, InfixOp, Box<Expr>),
@@ -94,6 +106,8 @@ pub enum ExprKind {
 pub type AssignPattern = AstNode<AssignPatternKind>;
 #[derive(Debug, Clone)]
 pub enum AssignPatternKind {
+	Error,
+
 	Hole,
 	Named(Rc<str>),
 	Tuple(Box<[AssignPattern]>),

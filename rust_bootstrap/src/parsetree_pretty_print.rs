@@ -52,6 +52,8 @@ fn print_function(writer: &mut impl Write, func: &Function, depth: usize) -> IOR
 fn print_effect(writer: &mut impl Write, effect: &Effect, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &effect.val {
+		EffectKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		EffectKind::Named(n) => {
 			writeln!(writer, "Named({})", n)?;
 		}
@@ -62,6 +64,8 @@ fn print_effect(writer: &mut impl Write, effect: &Effect, depth: usize) -> IORes
 fn print_param(writer: &mut impl Write, param: &Param, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &param.val {
+		ParamKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		ParamKind::Named(n, _type) => {
 			writeln!(writer, "Named({})", n)?;
 			print_type(writer, _type, depth + 1)?;
@@ -77,6 +81,8 @@ fn print_param(writer: &mut impl Write, param: &Param, depth: usize) -> IOResult
 fn print_type(writer: &mut impl Write, _type: &Type, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &_type.val {
+		TypeKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		TypeKind::Hole => writeln!(writer, "_")?,
 		TypeKind::Unit => writeln!(writer, "()")?,
 		TypeKind::Never => writeln!(writer, "!")?,
@@ -113,6 +119,8 @@ fn print_scope(writer: &mut impl Write, scope: &Scope, depth: usize) -> IOResult
 fn print_stmt(writer: &mut impl Write, stmt: &Stmt, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &stmt.val {
+		StmtKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		StmtKind::Expr(e) => {
 			writeln!(writer, "Expression Statement")?;
 			print_expr(writer, &e, depth + 1)?;
@@ -133,6 +141,8 @@ fn print_stmt(writer: &mut impl Write, stmt: &Stmt, depth: usize) -> IOResult<()
 fn print_let_pattern(writer: &mut impl Write, pattern: &LetPattern, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &pattern.val {
+		LetPatternKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		LetPatternKind::Hole(_type) => {
 			writeln!(writer, "Hole")?;
 			if let Some(_type) = _type {
@@ -164,6 +174,8 @@ fn print_let_pattern(writer: &mut impl Write, pattern: &LetPattern, depth: usize
 fn print_assign_pattern(writer: &mut impl Write, pattern: &AssignPattern, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &pattern.val {
+		AssignPatternKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		AssignPatternKind::Hole => {
 			writeln!(writer, "Hole")?;
 		},
@@ -183,6 +195,8 @@ fn print_assign_pattern(writer: &mut impl Write, pattern: &AssignPattern, depth:
 fn print_expr(writer: &mut impl Write, expr: &Expr, depth: usize) -> IOResult<()> {
 	pad_depth(writer, depth)?;
 	match &expr.val {
+		ExprKind::Error => writeln!(writer, "[INTERNAL ERROR]")?,
+
 		ExprKind::Assign(pattern, value) => {
 			writeln!(writer, "Assign")?;
 			print_assign_pattern(writer, pattern, depth + 1)?;
