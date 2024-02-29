@@ -58,6 +58,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							switch (i.Type) {
 								case IntrinsicType.Tuple:
 									return false;
+								case IntrinsicType.Ptr:
+									return true;
 								default:
 									throw new Exception($"Cannot determine simplicity of apply intrinsic {i.Type}");
 							}
@@ -227,6 +229,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 			asmWriter.WriteLine("global _start");
 			asmWriter.WriteLine("_start:");
 			asmWriter.WriteLine("    xor ebp, ebp");
+			asmWriter.WriteLine("    mov edi, rsp[0]");
+			asmWriter.WriteLine("    mov rsi, rsp[8]");
 			asmWriter.WriteLine("    xor eax, eax");
 			asmWriter.WriteLine("    call main");
 			asmWriter.WriteLine("    mov edi, eax");
@@ -492,6 +496,13 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 					switch (a.BaseType) {
 						case Function:
 							return 64;
+						case Intrinsic i:
+							switch (i.Type) {
+								case IntrinsicType.Ptr:
+									return 64;
+								default:
+									throw new Exception($"BitSize for Apply Intrinsic '{i.Type}' not implemented yet");
+							}
 						default:
 							throw new Exception($"BitSize for Apply '{a.BaseType}' not implemented yet");
 					}
@@ -661,6 +672,8 @@ public class CodeGenLinux_x86_64 : ICodeGen {
 							case IntrinsicType.Tuple:
 								var split = SplitUp(a.ParameterTypes);
 								return (SysV_Classify_Eightbytes(split), split);
+							case IntrinsicType.Ptr:
+								return (SysV_Classes.INTEGER, new[] {new Eightbyte(type)});
 							default:
 								throw new Exception($"Cannot classify Apply[Intrinsic[{i.Type}]] yet");
 						}

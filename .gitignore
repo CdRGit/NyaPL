@@ -1,4 +1,6 @@
 */bin/*
 */obj/*
+target/*
+*.lock
 debug/*
 *.out*

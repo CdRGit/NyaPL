@@ -1,23 +1,2 @@
-fn [exit] main(): i32 {
-	exit(40);
-	let (a, _, _, _, _, _) = big_fat_tuple_function((add_two, add_two, add_two, add_two, add_two), 0);
-	return a;
-}
-
-fn add_two(val: i32): i32 {
-	return val + 2;
-}
-
-typedef func = fn (i32): i32;
-
-fn big_fat_tuple_function(lot_of_functions: (func, func, func, func, func), in_val: i32): (i32, func, func, func, func, func) {
-	let (a, b, c, d, e) = lot_of_functions;
-	return (a(b(c(d(e(in_val))))), a, b, c, d, e);
-}
-
-fn [exit] exit(error_code: i32): () {
-	unsafe [exit] {
-		let fuckingHellIJustWantToExit = intrinsic:syscall(60, error_code, 0, 0, 0, 0, 0);
-	}
-	return ();
+fn [] test(): i32 {
 }
